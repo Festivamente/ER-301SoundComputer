@@ -1,0 +1,32 @@
+# Rack/plugin build output
+**/build/
+**/dist/
+*.vcvplugin
+plugin.dylib
+plugin.dll
+plugin.so
+
+# ER-301 generated build profiles
+/er-301-native/testing/
+/er-301-native/release/
+/er-301-native/debug/
+
+# Third-party build scratch and generated native prefixes. macOS/Linux are
+# bootstrapped automatically from pinned source by the public Makefile. The
+# validated Windows static prefix is intentionally versioned.
+/third-party/build/
+/third-party/install/macos-arm64/
+/third-party/install/macos-x86_64/
+/third-party/install/linux-x64/
+
+# External Rack SDK/toolchains are intentionally adjacent to this repository
+/Rack-SDK/
+/rack-plugin-toolchain/
+
+# Editor / OS files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

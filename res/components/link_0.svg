@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <!-- Invisible mouse hit target. The physical panel has no extra link button. -->
+  <rect x="0" y="0" width="20" height="20" rx="2" fill="#000000" fill-opacity="0.001"/>
+</svg>

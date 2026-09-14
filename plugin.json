@@ -1,0 +1,25 @@
+{
+  "slug": "ER-301SoundComputer",
+  "name": "ER-301 Sound Computer",
+  "version": "2.1.0",
+  "license": "GPL-3.0-or-later",
+  "brand": "Festivamente",
+  "author": "Festivamente",
+  "description": "The ER-301 Sound Computer emulator by Orthogonal Devices, ported to VCV Rack by Festivamente.",
+  "minRackVersion": "2.4.0",
+  "modules": [
+    {
+      "slug": "ER-301SoundComputer",
+      "name": "ER-301 Sound Computer",
+      "description": "The ER-301 Sound Computer emulator by Orthogonal Devices, ported to VCV Rack by Festivamente.",
+      "tags": [
+        "Hardware clone",
+        "Sampler",
+        "Synth voice",
+        "Effect",
+        "Utility"
+      ]
+    }
+  ],
+  "sourceUrl": "https://github.com/Festivamente/ER-301SoundComputer"
+}

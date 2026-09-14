@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="152.4mm" height="128.5mm" viewBox="0 0 152.4 128.5">
+  <defs>
+    <linearGradient id="panelMetal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#191919"/>
+      <stop offset="0.48" stop-color="#141414"/>
+      <stop offset="1" stop-color="#101010"/>
+    </linearGradient>
+    <linearGradient id="panelSheen" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#d7d7d4" stop-opacity="0.08"/>
+      <stop offset="0.28" stop-color="#d7d7d4" stop-opacity="0.02"/>
+      <stop offset="0.62" stop-color="#000000" stop-opacity="0.025"/>
+      <stop offset="1" stop-color="#d7d7d4" stop-opacity="0.055"/>
+    </linearGradient>
+    <linearGradient id="bezel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#30312f"/>
+      <stop offset="0.38" stop-color="#171817"/>
+      <stop offset="1" stop-color="#050505"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Black anodized-panel recolor. Geometry is intentionally identical to
+       ER301.svg; only the finish/engraving palette differs. -->
+  <rect x="0" y="0" width="152.4" height="128.5" fill="url(#panelMetal)"/>
+  <rect x="0" y="0" width="152.4" height="128.5" fill="url(#panelSheen)"/>
+  <!-- Structural engraving. -->
+  <g fill="none" stroke="#5e5f5c" stroke-width="0.28" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.6 8.25 H148.8 Q150.9 8.25 150.9 10.35 V117.75 Q150.9 119.85 148.8 119.85 H3.6 Q1.5 119.85 1.5 117.75 V10.35 Q1.5 8.25 3.6 8.25 Z"/>
+    <line x1="89.5" y1="74.8" x2="89.5" y2="119.85"/>
+    <path d="M89.5 74.8 V74.65 Q89.5 71.8 92.35 71.8 H150.9"/>
+    <path d="M1.5 103.45 H28.2 Q31.2 103.45 31.2 106.45 V119.85"/>
+  </g>
+
+  <!-- Display bezels: shallow molded lip, black aperture and lower shadow. -->
+  <rect x="5.35" y="14.82" width="79.80" height="21.55" rx="1.55" fill="#111211" opacity="0.42"/>
+  <rect x="5.45" y="14.55" width="79.60" height="21.40" rx="1.50" fill="url(#bezel)" stroke="#111211" stroke-width="0.46"/>
+  <rect x="5.87" y="14.98" width="78.76" height="20.55" rx="1.12" fill="#020202" stroke="#4d4f4b" stroke-width="0.18"/>
+  <rect x="47.70" y="63.47" width="37.60" height="20.05" rx="1.40" fill="#111211" opacity="0.42"/>
+  <rect x="47.80" y="63.20" width="37.40" height="19.90" rx="1.35" fill="url(#bezel)" stroke="#111211" stroke-width="0.46"/>
+  <rect x="48.22" y="63.62" width="36.56" height="19.05" rx="1.02" fill="#020202" stroke="#4d4f4b" stroke-width="0.18"/>
+
+  <!-- Physical SD-card aperture. -->
+  <rect x="20.50" y="106.75" width="3.00" height="12.35" rx="0.36" fill="#4a4b48" stroke="#383936" stroke-width="0.22"/>
+  <rect x="20.92" y="107.13" width="2.16" height="11.58" rx="0.20" fill="#161716"/>
+  <path d="M21.33 107.65 V118.15" stroke="#2e2f2d" stroke-width="0.30"/>
+
+  <!-- Dotted upper G / IN / OUT column guides. -->
+  <g fill="none" stroke="#62635f" stroke-width="0.22" stroke-dasharray="0.75 1.05">
+    <line x1="108.2" y1="8.65" x2="108.2" y2="71.50"/>
+    <line x1="122.3" y1="8.65" x2="122.3" y2="71.50"/>
+    <line x1="136.4" y1="8.65" x2="136.4" y2="71.50"/>
+  </g>
+
+  <g fill="#141414" stroke="#555653" stroke-width="0.22">
+    <rect x="106.35" y="15.05" width="3.55" height="4.50" rx="0.35"/>
+    <rect x="106.35" y="30.95" width="3.55" height="4.50" rx="0.35"/>
+    <rect x="106.35" y="46.85" width="3.55" height="4.50" rx="0.35"/>
+    <rect x="106.35" y="62.85" width="3.55" height="4.50" rx="0.35"/>
+  </g>
+
+  <g fill="none" stroke="#4a4b48" stroke-width="0.28" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M93.90 78.55 V80.25 Q93.90 81.20 94.85 81.20 H97.50"/><path d="M108.10 78.55 V80.25 Q108.10 81.20 109.05 81.20 H111.70"/>
+    <path d="M122.20 78.55 V80.25 Q122.20 81.20 123.15 81.20 H125.80"/><path d="M136.50 78.55 V80.25 Q136.50 81.20 137.45 81.20 H140.10"/>
+    <path d="M93.90 94.45 V96.15 Q93.90 97.10 94.85 97.10 H97.50"/><path d="M108.10 94.45 V96.15 Q108.10 97.10 109.05 97.10 H111.70"/>
+    <path d="M122.20 94.45 V96.15 Q122.20 97.10 123.15 97.10 H125.80"/><path d="M136.50 94.45 V96.15 Q136.50 97.10 137.45 97.10 H140.10"/>
+    <path d="M93.90 110.45 V112.15 Q93.90 113.10 94.85 113.10 H97.50"/><path d="M108.10 110.45 V112.15 Q108.10 113.10 109.05 113.10 H111.70"/>
+    <path d="M122.20 110.45 V112.15 Q122.20 113.10 123.15 113.10 H125.80"/><path d="M136.50 110.45 V112.15 Q136.50 113.10 137.45 113.10 H140.10"/>
+  </g>
+</svg>
