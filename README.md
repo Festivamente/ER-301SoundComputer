@@ -89,6 +89,12 @@ On macOS this is typically:
 
 The VCV port ships `core-0.7.0-dev1.8.pkg` on the virtual front card and installs it through the normal ER-301 package manager on first setup. It remains an ordinary package: it can be uninstalled and manually reinstalled from `front/ER-301/packages/`.
 
+## Third-party packages
+
+Third-party ER-301 packages are currently supported on Apple Silicon Macs only.
+
+Support for third-party packages on Windows, Linux, and Intel Macs is planned for the near future. This limitation does not affect the included ER-301 core package.
+
 ## Repository layout
 
 ```text
