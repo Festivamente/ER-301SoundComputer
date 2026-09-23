@@ -271,6 +271,9 @@ third-party-macos-prepare:
 	  rm -f "$$log"; \
 	  if ER301_MACOS_DEPLOYMENT_TARGET="$(ER301_MACOS_DEPLOYMENT_TARGET)" \
 	     ER301_THIRD_PARTY_PLATFORM="$(THIRD_PARTY_PLATFORM)" \
+	     ER301_MACOS_CC="$(CC)" \
+	     ER301_MACOS_CXX="$(CXX)" \
+	     ER301_MACOS_TARGET_TRIPLE="$(MACHINE)" \
 	     ER301_BUILD_JOBS="$${ER301_BUILD_JOBS:-1}" \
 	     scripts/build-third-party-macos.sh >"$$log" 2>&1; then \
 	    echo "Pinned dependencies: PASS ($(THIRD_PARTY_PLATFORM))"; \
@@ -294,6 +297,9 @@ third-party-macos-rebuild:
 	fi
 	ER301_MACOS_DEPLOYMENT_TARGET="$(ER301_MACOS_DEPLOYMENT_TARGET)" \
 	ER301_THIRD_PARTY_PLATFORM="$(THIRD_PARTY_PLATFORM)" \
+	ER301_MACOS_CC="$(CC)" \
+	ER301_MACOS_CXX="$(CXX)" \
+	ER301_MACOS_TARGET_TRIPLE="$(MACHINE)" \
 	ER301_BUILD_JOBS="$${ER301_BUILD_JOBS:-1}" \
 	scripts/build-third-party-macos.sh
 

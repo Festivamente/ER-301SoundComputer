@@ -16,6 +16,19 @@ case "$PLATFORM" in
 esac
 
 PREFIX="$ROOT/third-party/install/$PLATFORM"
+HOST_OS="$(uname -s)"
+
+if [[ "$HOST_OS" == "Darwin" ]]; then
+  OTOOL=/usr/bin/otool
+else
+  XCRUN="${ER301_MACOS_XCRUN:-$(command -v xcrun || true)}"
+  if [[ -z "$XCRUN" ]]; then
+    echo "error: macOS dependency audit requires OSXCross xcrun in PATH" >&2
+    exit 1
+  fi
+  OTOOL="$($XCRUN -f otool)"
+fi
+
 libs=(
   "$PREFIX/lib/libSDL2.a"
   "$PREFIX/lib/libSDL2main.a"
@@ -39,7 +52,7 @@ done
 # exceeds the Rack target floor. This catches the exact 14.0 -> 11.0 mismatch
 # that previously produced hundreds of linker warnings.
 for lib in "${libs[@]}"; do
-  if ! /usr/bin/otool -l "$lib" | awk -v max="$DEPLOYMENT" '
+  if ! "$OTOOL" -l "$lib" | awk -v max="$DEPLOYMENT" '
     function vnum(v, p,n,a,i,r) {
       n=split(v,a,"."); r=0;
       for(i=1;i<=3;i++) r = r*1000 + (i<=n ? a[i]+0 : 0);

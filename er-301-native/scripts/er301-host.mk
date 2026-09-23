@@ -2,6 +2,8 @@ include scripts/env.mk
 include scripts/utils.mk
 include ../third-party.mk
 
+.DEFAULT_GOAL := all
+
 # Build the ER-301 emulator core as a static library for an external host
 # such as VCV Rack. This mirrors scripts/emu.mk, but does not link an
 # executable and compiles the alternate host-driven audio backend.
@@ -31,9 +33,26 @@ c_sources += $(call rwildcard,$(core_src_dir),*.c)
 objects := $(addprefix $(out_dir)/,$(c_sources:%.c=%.o) $(cpp_sources:%.cpp=%.o))
 
 # Generated/manual objects also used by scripts/emu.mk.
+#
+# Rack's official plugin toolchain cross-builds every target on GNU/Linux and
+# does not provide SWIG.  The two wrappers needed by the embedded ER-301 host
+# are therefore checked in as generated source from the project's known-good
+# SWIG 4.4.1 output.  Only this Rack-host build uses the pinned wrappers; the
+# normal ER-301 firmware/mod build rules remain unchanged.
+pinned_swig_dir := generated/swig-4.4.1
 objects += $(out_dir)/od/glue/app_swig.o
 objects += $(out_dir)/mods/core/core_swig.o
 objects += $(out_dir)/libs/SDL_FontCache/SDL_FontCache.o
+
+$(out_dir)/od/glue/app_swig.cpp: $(pinned_swig_dir)/od/glue/app_swig.cpp
+	@echo $(describe_env) "PINNED SWIG 4.4.1" od/glue/app.cpp.swig
+	@mkdir -p $(@D)
+	@cp $< $@
+
+$(out_dir)/mods/core/core_swig.cpp: $(pinned_swig_dir)/mods/core/core_swig.cpp
+	@echo $(describe_env) "PINNED SWIG 4.4.1" mods/core/core.cpp.swig
+	@mkdir -p $(@D)
+	@cp $< $@
 
 # External host headers come from the workspace-local dependency prefix.
 CFLAGS += -I$(THIRD_PARTY_INCLUDE) -I$(THIRD_PARTY_INCLUDE)/SDL2
