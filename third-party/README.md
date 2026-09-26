@@ -50,3 +50,21 @@ relocatable `sdl2-config` needed for SDL2's normal Linux system-library flags,
 and runs `make third-party-linux-audit` before reporting success. Release builds
 refuse to build the ER-301 host archive until this audit passes, preventing an
 accidental fallback to system SDL/FFTW/FreeType libraries.
+
+## Rebuilding the Windows x86_64 static prefix
+
+Windows dependencies must be built with the same MinGW compiler that links the
+Rack plugin. The normal Windows build audits compiler metadata in the prefix and
+automatically rebuilds SDL2, SDL2_ttf/FreeType, and FFTW from the pinned sources
+when the prefix is missing or was produced by a different MinGW toolchain.
+
+For an explicit maintainer rebuild under the selected Rack Windows target, run:
+
+```sh
+make third-party-windows-rebuild
+```
+
+The helper cross-compiles into a temporary staging prefix, audits it, and only
+then replaces `install/windows-x64/`. This prevents a failed dependency rebuild
+from destroying the last known prefix. The pinned Windows SWIG executable remains
+under `tools/swigwin-4.4.1/`.

@@ -63,14 +63,19 @@ make runtime-check
 
 ## Dependencies
 
-Pinned source snapshots live under `third-party/src/`. On macOS and Linux, the selected
-`third-party/install/<platform>/` prefix is generated automatically the first time a
-public build target needs it, then audited and reused. This first preparation can take a while on slower machines. Vendor/CMake output is captured
+Pinned source snapshots live under `third-party/src/`. On macOS, Linux, and Windows,
+the selected `third-party/install/<platform>/` prefix is prepared automatically the
+first time a public build target needs it, then audited and reused. This first
+preparation can take a while on slower machines. Vendor/CMake output is captured
 during this automatic bootstrap so the normal `make install` transcript stays concise;
 if preparation fails, the tail of the full log is printed and the log path is retained.
 
-Windows carries its validated static `windows-x64` prefix plus the pinned SWIG runtime
-under `third-party/tools/`, and `make install` audits those inputs before compiling.
+For Windows, the audit also records the active MinGW target and compiler version. If a
+checked-in/preexisting `windows-x64` prefix was produced by a different MinGW toolchain,
+it is rebuilt from the pinned SDL2, SDL2_ttf/FreeType, and FFTW sources before
+`plugin.dll` is linked. This keeps the static libraries on the same CRT/toolchain ABI
+as Rack's official Windows cross-compiler. The pinned SWIG runtime remains under
+`third-party/tools/`.
 
 Release packages must not acquire runtime dependencies on SDL2, SDL2_ttf, FFTW, or
 FreeType from the build machine; run `make binary-audit` on each release target to

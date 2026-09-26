@@ -176,7 +176,7 @@ ifdef ARCH_WIN
   # System libraries required by our static Windows SDL2 build, plus the
   # MinGW pthread implementation used by FFTW's threads library.
   LDFLAGS += -static-libgcc
-  WINPTHREAD_STATIC := $(shell gcc -print-file-name=libwinpthread.a)
+  WINPTHREAD_STATIC := $(shell $(firstword $(CXX)) -print-file-name=libwinpthread.a)
   LDFLAGS += $(WINPTHREAD_STATIC) -lm
   LDFLAGS += -lkernel32 -luser32 -lgdi32 -lwinmm -limm32
   LDFLAGS += -lole32 -loleaut32 -lversion -luuid -ladvapi32
@@ -238,19 +238,18 @@ $(ER301_LIBS):
 # as a prerequisite so successive toolchain targets cannot reuse stale objects.
 clean: er301-clean
 
-.PHONY: platform-info binary-audit upstream-warning-audit dependencies third-party-macos-prepare third-party-macos-rebuild third-party-macos-audit third-party-linux-prepare third-party-linux-rebuild third-party-linux-audit third-party-windows-audit audio-test multi-instance-test package-test runtime-check runtime-sync
+.PHONY: platform-info binary-audit upstream-warning-audit dependencies third-party-macos-prepare third-party-macos-rebuild third-party-macos-audit third-party-linux-prepare third-party-linux-rebuild third-party-linux-audit third-party-windows-prepare third-party-windows-rebuild third-party-windows-audit audio-test multi-instance-test package-test runtime-check runtime-sync
 
 # Public dependency bootstrap. A fresh clone can use `make install` directly.
-# macOS/Linux build pinned static dependencies from the repository-local source
-# snapshots only when the target prefix is missing or invalid. Windows ships its
-# validated static prefix and pinned SWIG tool, so preparation there is an
-# audit-only operation.
+# macOS/Linux/Windows build pinned static dependencies from the repository-local
+# source snapshots when the selected prefix is missing or incompatible with the
+# active target toolchain.
 ifdef ARCH_MAC
 dependencies: third-party-macos-prepare
 else ifdef ARCH_LIN
 dependencies: third-party-linux-prepare
 else ifdef ARCH_WIN
-dependencies: third-party-windows-audit
+dependencies: third-party-windows-prepare
 else
 dependencies:
 	@echo "error: unsupported dependency target $(ARCH_NAME)" >&2; exit 1
@@ -314,6 +313,8 @@ third-party-macos-audit:
 third-party-linux-prepare:
 	@set -e; \
 	if ER301_THIRD_PARTY_PLATFORM="$(THIRD_PARTY_PLATFORM)" \
+	   ER301_LINUX_CC="$(firstword $(CC))" \
+	   ER301_LINUX_AR="$(ER301_AR)" \
 	   scripts/audit-third-party-linux.sh >/dev/null 2>&1; then \
 	  echo "Pinned dependencies: PASS ($(THIRD_PARTY_PLATFORM))"; \
 	else \
@@ -321,6 +322,9 @@ third-party-linux-prepare:
 	  log="$${TMPDIR:-/tmp}/er301-dependencies-$(THIRD_PARTY_PLATFORM).log"; \
 	  rm -f "$$log"; \
 	  if ER301_THIRD_PARTY_PLATFORM="$(THIRD_PARTY_PLATFORM)" \
+	     ER301_LINUX_CC="$(firstword $(CC))" \
+	     ER301_LINUX_CXX="$(firstword $(CXX))" \
+	     ER301_LINUX_AR="$(ER301_AR)" \
 	     ER301_BUILD_JOBS="$${ER301_BUILD_JOBS:-1}" \
 	     scripts/build-third-party-linux.sh >"$$log" 2>&1; then \
 	    echo "Pinned dependencies: PASS ($(THIRD_PARTY_PLATFORM))"; \
@@ -342,6 +346,9 @@ third-party-linux-rebuild:
 	  echo "third-party-linux-rebuild is only valid on Linux" >&2; exit 1; \
 	fi
 	ER301_THIRD_PARTY_PLATFORM="$(THIRD_PARTY_PLATFORM)" \
+	ER301_LINUX_CC="$(firstword $(CC))" \
+	ER301_LINUX_CXX="$(firstword $(CXX))" \
+	ER301_LINUX_AR="$(ER301_AR)" \
 	ER301_BUILD_JOBS="$${ER301_BUILD_JOBS:-1}" \
 	scripts/build-third-party-linux.sh
 
@@ -350,13 +357,60 @@ third-party-linux-audit:
 	  echo "third-party-linux-audit is only valid on Linux" >&2; exit 1; \
 	fi
 	ER301_THIRD_PARTY_PLATFORM="$(THIRD_PARTY_PLATFORM)" \
+	ER301_LINUX_CC="$(firstword $(CC))" \
+	ER301_LINUX_AR="$(ER301_AR)" \
 	scripts/audit-third-party-linux.sh
+
+# Windows must use static dependencies built by the same MinGW toolchain that
+# links plugin.dll. This avoids CRT/import mismatches from prebuilt archives made
+# by a different MSYS2/MinGW version. A missing or mismatched prefix is rebuilt
+# automatically from the pinned repository-local sources.
+third-party-windows-prepare:
+	@set -e; \
+	if ER301_THIRD_PARTY_PLATFORM="$(THIRD_PARTY_PLATFORM)" \
+	   ER301_WINDOWS_CC="$(firstword $(CC))" \
+	   ER301_WINDOWS_AR="$(ER301_AR)" \
+	   scripts/audit-third-party-windows.sh >/dev/null 2>&1; then \
+	  echo "Pinned dependencies: PASS ($(THIRD_PARTY_PLATFORM))"; \
+	else \
+	  echo "Preparing pinned dependencies ($(THIRD_PARTY_PLATFORM))... This could take a while."; \
+	  log="$${TMPDIR:-/tmp}/er301-dependencies-$(THIRD_PARTY_PLATFORM).log"; \
+	  rm -f "$$log"; \
+	  if ER301_THIRD_PARTY_PLATFORM="$(THIRD_PARTY_PLATFORM)" \
+	     ER301_WINDOWS_CC="$(firstword $(CC))" \
+	     ER301_WINDOWS_CXX="$(firstword $(CXX))" \
+	     ER301_WINDOWS_AR="$(ER301_AR)" \
+	     ER301_BUILD_JOBS="$${ER301_BUILD_JOBS:-1}" \
+	     scripts/build-third-party-windows.sh >"$$log" 2>&1; then \
+	    echo "Pinned dependencies: PASS ($(THIRD_PARTY_PLATFORM))"; \
+	    rm -f "$$log"; \
+	  else \
+	    status=$$?; \
+	    echo "Dependency preparation failed. Last 80 log lines:" >&2; \
+	    tail -n 80 "$$log" >&2 || true; \
+	    echo "Full dependency log: $$log" >&2; \
+	    exit $$status; \
+	  fi; \
+	fi
+
+third-party-windows-rebuild:
+	@if [ "$(ARCH_OS)" != "win" ]; then \
+	  echo "third-party-windows-rebuild is only valid for the Windows Rack target" >&2; exit 1; \
+	fi
+	ER301_THIRD_PARTY_PLATFORM="$(THIRD_PARTY_PLATFORM)" \
+	ER301_WINDOWS_CC="$(firstword $(CC))" \
+	ER301_WINDOWS_CXX="$(firstword $(CXX))" \
+	ER301_WINDOWS_AR="$(ER301_AR)" \
+	ER301_BUILD_JOBS="$${ER301_BUILD_JOBS:-1}" \
+	scripts/build-third-party-windows.sh
 
 third-party-windows-audit:
 	@if [ "$(ARCH_OS)" != "win" ]; then \
-	  echo "third-party-windows-audit is only valid on Windows" >&2; exit 1; \
+	  echo "third-party-windows-audit is only valid for the Windows Rack target" >&2; exit 1; \
 	fi
 	@ER301_THIRD_PARTY_PLATFORM="$(THIRD_PARTY_PLATFORM)" \
+	ER301_WINDOWS_CC="$(firstword $(CC))" \
+	ER301_WINDOWS_AR="$(ER301_AR)" \
 	scripts/audit-third-party-windows.sh
 
 # Diagnostic-only target: rebuild Brian's untouched engine with the audited
