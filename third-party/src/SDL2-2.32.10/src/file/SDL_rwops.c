@@ -316,7 +316,14 @@ static int SDLCALL windows_file_close(SDL_RWops *context)
 #ifdef HAVE_FOPEN64
 #define fopen fopen64
 #endif
-#ifdef HAVE_FSEEKO64
+#if defined(__WIN32__)
+/* MinGW may detect fseeko64/ftello64 but emit CRT imports that are absent
+ * from the runtime used to link the Rack plugin. Windows provides the
+ * 64-bit stdio functions directly under these names. */
+#define fseek_off_t __int64
+#define fseek       _fseeki64
+#define ftell       _ftelli64
+#elif defined(HAVE_FSEEKO64)
 #define fseek_off_t off64_t
 #define fseek       fseeko64
 #define ftell       ftello64

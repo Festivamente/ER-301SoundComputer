@@ -188,6 +188,7 @@ target=$TARGET_TRIPLE
 compiler=$CC
 compiler_version=$COMPILER_VERSION
 sdl2=2.32.10
+sdl2_windows_crt_patch=1
 sdl2_ttf=2.24.0
 fftw=3.3.11
 META

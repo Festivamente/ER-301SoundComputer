@@ -75,6 +75,7 @@ if ! grep -qx 'platform=windows-x64' "$PREFIX/.er301-build-meta" || \
 fi
 
 if ! grep -qx 'sdl2=2.32.10' "$PREFIX/.er301-build-meta" || \
+   ! grep -qx 'sdl2_windows_crt_patch=1' "$PREFIX/.er301-build-meta" || \
    ! grep -qx 'sdl2_ttf=2.24.0' "$PREFIX/.er301-build-meta" || \
    ! grep -qx 'fftw=3.3.11' "$PREFIX/.er301-build-meta"; then
   echo "error: Windows dependency metadata does not match the pinned source versions" >&2

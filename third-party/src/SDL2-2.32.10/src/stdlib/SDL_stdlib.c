@@ -618,7 +618,7 @@ void *SDL_memset(SDL_OUT_BYTECAP(len) void *dst, int c, size_t len)
 #endif /* HAVE_MEMSET */
 }
 
-#if defined(HAVE_CTYPE_H) && defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+#if !defined(__WIN32__) && defined(HAVE_CTYPE_H) && defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
 int SDL_isblank(int x)
 {
     return isblank(x);
