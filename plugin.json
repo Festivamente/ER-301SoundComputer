@@ -12,6 +12,7 @@
       "slug": "ER-301SoundComputer",
       "name": "ER-301 Sound Computer",
       "description": "The ER-301 Sound Computer emulator by Orthogonal Devices, ported to VCV Rack by Festivamente.",
+      "modularGridUrl": "https://www.modulargrid.net/e/orthogonal-devices-er-301-sound-computer",
       "tags": [
         "Hardware clone",
         "Sampler",

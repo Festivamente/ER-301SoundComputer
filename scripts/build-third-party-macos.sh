@@ -198,6 +198,7 @@ mkdir -p "$FFTW_BUILD"
         --enable-float \
         --enable-threads \
         --disable-fortran \
+        --disable-doc \
         "$FFTW_SIMD"; then
       echo "error: FFTW configure failed; tail of config.log follows" >&2
       tail -n 100 config.log >&2 || true
@@ -218,6 +219,7 @@ mkdir -p "$FFTW_BUILD"
         --enable-float \
         --enable-threads \
         --disable-fortran \
+        --disable-doc \
         "$FFTW_SIMD"; then
       echo "error: FFTW configure failed; tail of config.log follows" >&2
       tail -n 100 config.log >&2 || true
