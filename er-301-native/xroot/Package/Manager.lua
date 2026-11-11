@@ -424,6 +424,7 @@ end
 
 local function cardMounted()
   packageCacheIsStale = true
+  loadInstalledPackages()
 end
 
 local function cardEjected()

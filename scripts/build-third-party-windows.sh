@@ -32,11 +32,37 @@ done
 
 # CMake treats non-absolute compiler/binutils names passed in CMAKE_* variables
 # as paths relative to its source/build context in some cross-compile checks.
-# Resolve every MinGW tool to its absolute path before handing it to CMake.
-CC="$(command -v "$CC")"
-CXX="$(command -v "$CXX")"
-AR="$(command -v "$AR")"
-RANLIB="$(command -v "$RANLIB")"
+#
+# Support both Windows build environments:
+#   1. VCV/Linux cross-toolchain: keep normal POSIX MinGW paths unchanged.
+#   2. Native Windows MSYS2/MINGW/Cygwin: command -v may return a suffix-less
+#      path such as /mingw64/bin/gcc even though the real executable is
+#      gcc.exe. Native Windows CMake converts the suffix-less path to
+#      C:/.../gcc and rejects it because that exact file does not exist.
+#      Only in the native Windows environment, use the actual .exe path.
+HOST_UNAME="$(uname -s)"
+
+resolve_windows_tool()
+{
+  local tool="$1"
+  local path
+  path="$(command -v "$tool")"
+
+  case "$HOST_UNAME" in
+    MINGW*|MSYS*|CYGWIN*)
+      if [[ "$path" != *.exe && -f "${path}.exe" ]]; then
+        path="${path}.exe"
+      fi
+      ;;
+  esac
+
+  printf '%s\n' "$path"
+}
+
+CC="$(resolve_windows_tool "$CC")"
+CXX="$(resolve_windows_tool "$CXX")"
+AR="$(resolve_windows_tool "$AR")"
+RANLIB="$(resolve_windows_tool "$RANLIB")"
 
 TARGET_TRIPLE="$($CC -dumpmachine)"
 case "$TARGET_TRIPLE" in
@@ -62,7 +88,7 @@ if [[ -z "$RC" ]] || ! command -v "$RC" >/dev/null 2>&1; then
   echo "error: required Windows resource compiler not found (tried ${TARGET_TRIPLE}-windres and ${RC:-<empty>})" >&2
   exit 1
 fi
-RC="$(command -v "$RC")"
+RC="$(resolve_windows_tool "$RC")"
 
 COMPILER_VERSION="$($CC -dumpfullversion 2>/dev/null || $CC -dumpversion)"
 FINAL_PREFIX="$ROOT/third-party/install/$PLATFORM"
