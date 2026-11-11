@@ -1,7 +1,8 @@
 #include "plugin.hpp"
 #include "er301_bridge.hpp"
 #include "er301_audio_contract.hpp"
-#include "er301_sample_rate_adapter.hpp"
+#include "er301_streaming_rate_adapter.hpp"
+#include "er301_native_streaming_pilot.hpp"
 #include "ER301Layout.hpp"
 
 #include <osdialog.h>
@@ -760,7 +761,7 @@ static bool prepareSharedInstalledPackages(const std::string& sharedRoot,
                     firmwareConfig;
             return false;
         }
-        output << "SAMPLERATE 48000\nFRAMELENGTH 128\n";
+        output << "SAMPLERATE 48000\nFRAMELENGTH 4\n";
     }
     return true;
 }
@@ -1105,11 +1106,14 @@ struct ER301 : Module {
     std::atomic<int> encoderDelta{0}; // written by the encoder widget
 
     // --- audio adapters ---
-    // The direct adapter preserves one-engine-frame latency at native 48/96 kHz.
-    // The rate adapter is used only when Rack and the chosen ER-301 firmware mode
-    // differ. Both are fixed-storage and allocation-free from process().
-    er301audio::BlockAdapter audioAdapter;
-    er301audio::SampleRateAdapter sampleRateAdapter;
+    // Automatic low-latency input path. At native rates each Rack sample is
+    // delivered directly to the ER-301 streaming scheduler. At mismatched
+    // rates StreamingRateAdapter converts clocks without input batching and
+    // feeds the exact same per-sample path.
+    er301audio::NativeStreamingPilot streamingPilot;
+    std::atomic<bool> streamingPilotActive{false};
+    std::atomic<bool> streamingPilotFailed{false};
+    er301audio::StreamingRateAdapter sampleRateAdapter;
     std::atomic<int> rackSampleRate{48000};
     int nativeSampleRate = 0;
     std::atomic<bool> audioConfigurationReady{false};
@@ -1197,6 +1201,9 @@ struct ER301 : Module {
         prevMode = -1;
         encoderDelta.store(0, std::memory_order_release);
 
+        streamingPilotActive.store(false, std::memory_order_release);
+        streamingPilotFailed.store(false, std::memory_order_release);
+        streamingPilot.reset();
         nativeSampleRate = 0;
         audioConfigurationReady.store(false, std::memory_order_release);
         audioConfigurationGeneration.fetch_add(1, std::memory_order_acq_rel);
@@ -1463,6 +1470,14 @@ struct ER301 : Module {
             std::min(newRackSampleRate, 768000));
         rackSampleRate.store(sanitizedRackRate, std::memory_order_release);
         audioConfigurationReady.store(false, std::memory_order_release);
+
+        if (engine.isReady())
+            engine.disableStreaming();
+
+        streamingPilot.reset(engine.frameLength());
+        streamingPilotActive.store(false, std::memory_order_release);
+        streamingPilotFailed.store(false, std::memory_order_release);
+
         if (nativeSampleRate == 48000 || nativeSampleRate == 96000) {
             sampleRateAdapter.configure(sanitizedRackRate, nativeSampleRate,
                                         engine.frameLength());
@@ -1596,7 +1611,7 @@ struct ER301 : Module {
             }
             else {
                 INFO("ER301[%s]: sample-rate conversion active: Rack %d Hz "
-                     "<-> ER-301 %d Hz (quality 10).",
+                     "<-> ER-301 %d Hz (automatic causal input streaming).",
                      instanceKey.c_str(), currentRackRate, nativeSampleRate);
             }
         }
@@ -1666,9 +1681,9 @@ struct ER301 : Module {
         const unsigned generation = audioConfigurationGeneration.load(
             std::memory_order_acquire);
         if (generation != audioConfigurationSeen) {
-            // Never resume midway through a direct-path frame after Rack's
-            // rate changes. The SRC adapter was already reset by configure().
-            audioAdapter.reset(engine.frameLength());
+            // Never resume midway through a streaming frame after Rack's
+            // sample rate changes. configureAudioPath() already reset the SRC.
+            streamingPilot.reset(engine.frameLength());
             audioConfigurationSeen = generation;
         }
 
@@ -1679,19 +1694,41 @@ struct ER301 : Module {
 
         const int currentRackRate = rackSampleRate.load(
             std::memory_order_acquire);
+
+        // One automatic engine-rate sample callback is used everywhere. The
+        // scheduler always streams the range-capable prefix (at minimum the
+        // external InputTask). If a legacy/third-party unit is encountered,
+        // the remaining graph runs once at frame end and the bridge emits the
+        // previous completed frame. A legacy unit therefore cannot disable
+        // streaming input capture or desynchronize A1/G1/etc.
+        auto processEngineSample =
+            [this](const float* input, float* output) {
+                streamingPilot.processSample(
+                    input, output, engine.frameLength(), true,
+                    [this]() { return engine.tryEnableStreaming(); },
+                    [this]() { engine.disableStreaming(); },
+                    [this](const float* sampleIn, float* sampleOut, int index) {
+                        return engine.processStreamingSample(
+                            sampleIn, sampleOut, index);
+                    },
+                    [this](const float* inputFrame, float* outputFrame) {
+                        engine.processBlock(inputFrame, outputFrame);
+                    });
+
+                streamingPilotActive.store(
+                    streamingPilot.active(), std::memory_order_release);
+                streamingPilotFailed.store(
+                    streamingPilot.failed(), std::memory_order_release);
+            };
+
         if (currentRackRate == nativeSampleRate) {
-            audioAdapter.processSample(
-                rackInputs, rackOutputs, engine.frameLength(),
-                [this](const float* inputFrame, float* outputFrame) {
-                    engine.processBlock(inputFrame, outputFrame);
-                });
+            processEngineSample(rackInputs, rackOutputs);
         }
         else {
+            // Cross-rate operation feeds the SAME automatic streaming path.
+            // The converter is causal and preserves narrow G1-G4 rising edges.
             sampleRateAdapter.processSample(
-                rackInputs, rackOutputs,
-                [this](const float* inputFrame, float* outputFrame) {
-                    engine.processBlock(inputFrame, outputFrame);
-                });
+                rackInputs, rackOutputs, processEngineSample);
         }
 
         for (int channel = 0; channel < er301::NUM_OUTPUTS; ++channel)

@@ -17,6 +17,10 @@ namespace od
 
 #ifndef SWIGLUA
 		virtual void process(float *inputs, float *outputs);
+        // Opt-in to range execution only if ALL contained Units support it.
+        virtual bool supportsRange() const;
+        virtual bool processRange(float *inputs, float *outputs,
+                                  int startSample, int sampleCount);
 		virtual void prepareForShutdown();
 #endif
 
@@ -61,9 +65,16 @@ namespace od
 		Outlet *mpRightSource = 0;
 		int mChannelCount;
 		std::vector<Unit *> mUnits; // in processing order
-		Mutex mMutex;
+		mutable Mutex mMutex;
 		LinearRamp mFade;
 		bool mMuted = false;
+        // The legacy mute/fade logic advances once per full frame. Store
+        // its single frame-wide ramp across all slices of that frame.
+        int mNextRangeSample = 0;
+        bool mRangeMuted = false;
+        bool mRangeFading = false;
+        float mRangeFadeSlope = 0.0f;
+        float mRangeFadeStart = 0.0f;
 
 		void connectInternals();
 		void disconnectInternals();

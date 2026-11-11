@@ -21,6 +21,16 @@ namespace od
     static void beginTransaction();
     static void endTransaction();
 
+#ifndef SWIGLUA
+    // Phase 2F: prepared for an opt-in streaming host callback. These do
+    // not activate streaming from the existing Pump_callback() entry point.
+    static bool tryEnableStreaming();
+    static void disableStreaming();
+    static bool streamingOutputIsImmediate();
+    static bool processStreamingRange(float *inputs, float *outputs,
+                                      int startSample, int sampleCount);
+#endif
+
     static InputTask *getInputTask();
     static OutputTask *getOutputTask();
 
@@ -47,3 +57,13 @@ namespace od
   };
 
 } /* namespace od */
+
+#ifndef SWIGLUA
+// Experimental C ABI for the future VCV streaming bridge. All calls are
+// default-off; Pump_callback() remains the untouched legacy path.
+extern "C" bool Pump_try_enable_streaming(void);
+extern "C" void Pump_disable_streaming(void);
+extern "C" bool Pump_streaming_output_is_immediate(void);
+extern "C" bool Pump_callback_range(float *inputs, float *outputs,
+                                      int startSample, int sampleCount);
+#endif

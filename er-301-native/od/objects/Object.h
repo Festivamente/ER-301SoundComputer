@@ -26,6 +26,10 @@ namespace od
 
 #ifndef SWIGLUA
     virtual void process();
+    // Opt-in streaming API. Returns false for objects requiring a full frame.
+    // Never call process() on incomplete frames as a fallback.
+    virtual bool processRange(int startSample, int sampleCount);
+    virtual bool supportsRange() const { return false; }
     virtual void compile();
 
     void updateParameters();

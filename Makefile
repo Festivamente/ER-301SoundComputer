@@ -231,6 +231,16 @@ build/src/er301_bridge.cpp.o: $(ER301_LIBS)
 # Prepare/audit it before the recursive ER-301 engine build begins.
 $(ER301_LIBS): | dependencies
 
+# The Rack plugin build must notice edits to vendored native sources.
+# Without these prerequisites, an existing liber301host.a can be considered
+# current even when TaskScheduler.cpp, InputTask.cpp, etc. have changed.
+# The nested Makefile retains responsibility for selecting/rebuilding objects.
+ER301_NATIVE_TREE_DEPS := $(shell find $(ER301_DIR)/od $(ER301_DIR)/hal $(ER301_DIR)/emu \
+  $(ER301_DIR)/arch/$(ER301_ARCH) $(ER301_DIR)/mods/core \
+  -type f \( -name '*.cpp' -o -name '*.c' -o -name '*.h' \) 2>/dev/null)
+ER301_NATIVE_TREE_DEPS += $(ER301_DIR)/scripts/er301-host.mk $(ER301_DIR)/scripts/rules.mk
+$(ER301_HOST_LIB): $(ER301_NATIVE_TREE_DEPS)
+
 $(ER301_LIBS):
 	+$(MAKE) -C $(ER301_DIR) er301-host $(ER301_BUILD_ARGS)
 

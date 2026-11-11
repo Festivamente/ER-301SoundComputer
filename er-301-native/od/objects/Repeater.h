@@ -23,6 +23,9 @@ namespace od
 
         void copyInputToOutput();
         void fade(float a, float w0);
+        // Only write the selected portion of this frame.
+        bool copyRange(int startSample, int sampleCount);
+        bool fadeRange(float a, float w0, int startSample, int sampleCount);
 
         inline void mute()
         {

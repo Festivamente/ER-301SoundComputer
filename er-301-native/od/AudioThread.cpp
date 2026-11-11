@@ -123,6 +123,38 @@ namespace od
     local->tasks.endTransaction();
   }
 
+  bool AudioThread::tryEnableStreaming()
+  {
+    return local && local->tasks.tryEnableRangeProcessing();
+  }
+
+  void AudioThread::disableStreaming()
+  {
+    if (local)
+      local->tasks.setRangeProcessingEnabled(false);
+  }
+
+  bool AudioThread::streamingOutputIsImmediate()
+  {
+    return local && local->tasks.rangeProcessingIsImmediate();
+  }
+
+  bool AudioThread::processStreamingRange(float *inputs, float *outputs,
+                                           int startSample, int sampleCount)
+  {
+    if (!local || !inputs || !outputs || startSample < 0 || sampleCount <= 0 ||
+        sampleCount >= FRAMELENGTH ||
+        startSample >= FRAMELENGTH ||
+        sampleCount > FRAMELENGTH - startSample)
+      return false;
+
+    local->audioTimer.start();
+    const bool success = local->tasks.tryProcessRange(
+        inputs, outputs, startSample, sampleCount, FRAMELENGTH);
+    local->audioTimer.stop();
+    return success;
+  }
+
   InputTask *AudioThread::getInputTask()
   {
     return local->inputTask;
@@ -215,4 +247,29 @@ extern "C"
     od::local->tasks.process(inputs, outputs);
     od::local->audioTimer.stop();
   }
+}
+
+// Independent experimental entry points. Rack does not call these in 2F.
+// A partial-frame failure is terminal for that frame: the host must NOT
+// retry the same frame via Pump_callback(), which would process samples twice.
+extern "C" bool Pump_try_enable_streaming(void)
+{
+  return od::AudioThread::tryEnableStreaming();
+}
+
+extern "C" void Pump_disable_streaming(void)
+{
+  od::AudioThread::disableStreaming();
+}
+
+extern "C" bool Pump_streaming_output_is_immediate(void)
+{
+  return od::AudioThread::streamingOutputIsImmediate();
+}
+
+extern "C" bool Pump_callback_range(float *inputs, float *outputs,
+                                      int startSample, int sampleCount)
+{
+  return od::AudioThread::processStreamingRange(inputs, outputs,
+                                                  startSample, sampleCount);
 }

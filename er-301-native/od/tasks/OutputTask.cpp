@@ -1,5 +1,6 @@
 #include <od/tasks/OutputTask.h>
 #include <od/config.h>
+#include <od/tasks/StreamingFrameIO.h>
 #include <string.h>
 
 namespace od
@@ -104,6 +105,43 @@ namespace od
 			memset(mMonitor4.buffer(), 0, FRAMELENGTH * sizeof(float));
 		}
 	}
+
+    bool OutputTask::processRange(float *inputs, float *outputs,
+                                  int startSample, int sampleCount)
+    {
+        (void)inputs;
+        if (!outputs || !streaming::validFrameRange(startSample, sampleCount, FRAMELENGTH))
+            return false;
+
+        // Preserve channel routing and monitor semantics, but touch ONLY
+        // the requested indices. All other samples remain untouched.
+        Inlet *inlets[NUM_OUTPUT_CHANNELS] = { &mOut1, &mOut2, &mOut3, &mOut4 };
+        Outlet *monitors[NUM_OUTPUT_CHANNELS] = {
+            &mMonitor1, &mMonitor2, &mMonitor3, &mMonitor4
+        };
+        for (int channel = 0; channel < NUM_OUTPUT_CHANNELS; ++channel)
+        {
+            if (inlets[channel]->isConnected())
+            {
+                const float *src = inlets[channel]->buffer();
+                streaming::copyOutputChannel(outputs, src, channel,
+                                             startSample, sampleCount);
+                if (monitors[channel]->isConnected())
+                {
+                    memcpy(monitors[channel]->buffer() + startSample,
+                           src + startSample, sampleCount * sizeof(float));
+                }
+            }
+            else
+            {
+                streaming::clearOutputChannel(outputs, channel,
+                                              startSample, sampleCount);
+                memset(monitors[channel]->buffer() + startSample,
+                       0, sampleCount * sizeof(float));
+            }
+        }
+        return true;
+    }
 
 	void OutputTask::prepareForShutdown()
 	{

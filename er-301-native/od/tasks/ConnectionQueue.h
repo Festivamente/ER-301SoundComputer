@@ -24,6 +24,9 @@ namespace od
 
 #ifndef SWIGLUA
         virtual void process(float *inputs, float *outputs);
+        // AudioThread schedules this LAST (INT_MIN). Apply pending graph
+        // mutations and its scheduled-object updates after the final slice.
+        virtual bool supportsFrameEnd() const { return true; }
         virtual void prepareForShutdown();
 #endif
 

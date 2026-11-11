@@ -97,6 +97,13 @@ namespace er301
     bool savePatchState(uint32_t timeoutMs = 15000);
 
     void processBlock(const float *inVolts, float *outVolts);
+
+    // Phase 2G pilot: native-rate only, guarded range processing inside this
+    // instance's isolated engine image. Never call from a different engine.
+    bool tryEnableStreaming();
+    void disableStreaming();
+    bool processStreamingSample(const float *inVolts, float *outVolts,
+                                int sampleIndex);
     bool getDisplayFrame(uint8_t *mainRaw, uint8_t *subRaw);
 
     // Native desktop file chooser handshake. The ER-301 Lua UI requests a

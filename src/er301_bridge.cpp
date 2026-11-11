@@ -15,6 +15,7 @@
 #include <hal/display.h>
 #include <hal/events.h>
 #include <od/config.h>
+#include <od/AudioThread.h>
 
 #include <atomic>
 #include <chrono>
@@ -44,7 +45,7 @@ static_assert(er301::SUB_BYTES == SUB_FRAME_BUFFER_BYTES, "sub fb size mismatch"
 
 namespace
 {
-  static const uint32_t kBridgeAbiVersion = 1;
+  static const uint32_t kBridgeAbiVersion = 2; // v2 extends the private image ABI
 
   struct RuntimePathsC
   {
@@ -71,6 +72,9 @@ namespace
     int (*sampleRate)();
     bool (*savePatchState)(uint32_t);
     void (*processBlock)(const float *, float *);
+    bool (*tryEnableStreaming)();
+    void (*disableStreaming)();
+    bool (*processStreamingSample)(const float *, float *, int);
     bool (*getDisplayFrame)(uint8_t *, uint8_t *);
     void (*setButton)(int, bool);
     void (*turnEncoder)(int);
@@ -605,6 +609,11 @@ namespace er301
   static std::atomic<uint32_t> g_audioCalls{0};
   alignas(64) static float g_inFrame[MAX_FRAME * NUM_INPUTS];
   alignas(64) static float g_outFrame[MAX_FRAME * NUM_OUTPUTS];
+  // When the scheduler is in hybrid mode, legacy DSP runs once at the end of
+  // each frame while InputTask continues to stream sample-by-sample. Keep the
+  // completed output frame separate so it can be emitted during the following
+  // frame without being overwritten by current-frame processing.
+  alignas(64) static float g_streamingPreviousOutFrame[MAX_FRAME * NUM_OUTPUTS];
 
   static std::thread g_displayThread;
   static std::atomic<bool> g_displayStop{false};
@@ -732,6 +741,8 @@ namespace er301
     HostTextDialog_reset();
     std::memset(g_inFrame, 0, sizeof(g_inFrame));
     std::memset(g_outFrame, 0, sizeof(g_outFrame));
+    std::memset(g_streamingPreviousOutFrame, 0,
+                sizeof(g_streamingPreviousOutFrame));
     g_state.store(LifecycleState::idle, std::memory_order_release);
     g_owned.store(false, std::memory_order_release);
   }
@@ -772,6 +783,8 @@ namespace er301
 
     std::memset(g_inFrame, 0, sizeof(g_inFrame));
     std::memset(g_outFrame, 0, sizeof(g_outFrame));
+    std::memset(g_streamingPreviousOutFrame, 0,
+                sizeof(g_streamingPreviousOutFrame));
     if (!startDisplayPump())
     {
       emu::Emulator_shutdownForHost();
@@ -846,6 +859,92 @@ namespace er301
           outVolts + s * NUM_OUTPUTS);
     }
     g_audioCalls.fetch_sub(1, std::memory_order_acq_rel);
+  }
+
+  // All private-image streaming operations participate in the same shutdown
+  // admission counter as backendProcessBlock(). A mode change never runs DSP.
+  static bool backendTryEnableStreaming()
+  {
+    if (!backendIsReady()) return false;
+    g_audioCalls.fetch_add(1, std::memory_order_acq_rel);
+    if (!backendIsReady() || !Audio_running())
+    {
+      g_audioCalls.fetch_sub(1, std::memory_order_acq_rel);
+      return false;
+    }
+    const bool ok = Pump_try_enable_streaming();
+    if (ok)
+    {
+      std::memset(g_inFrame, 0, sizeof(g_inFrame));
+      std::memset(g_outFrame, 0, sizeof(g_outFrame));
+      std::memset(g_streamingPreviousOutFrame, 0,
+                  sizeof(g_streamingPreviousOutFrame));
+    }
+    g_audioCalls.fetch_sub(1, std::memory_order_acq_rel);
+    return ok;
+  }
+
+  static void backendDisableStreaming()
+  {
+    if (!backendIsReady()) return;
+    g_audioCalls.fetch_add(1, std::memory_order_acq_rel);
+    if (backendIsReady() && Audio_running())
+      Pump_disable_streaming();
+    g_audioCalls.fetch_sub(1, std::memory_order_acq_rel);
+  }
+
+  static bool backendProcessStreamingSample(const float *inVolts,
+                                            float *outVolts,
+                                            int sampleIndex)
+  {
+    if (outVolts) std::memset(outVolts, 0, NUM_OUTPUTS * sizeof(float));
+    if (!inVolts || !outVolts || !backendIsReady() ||
+        sampleIndex < 0 || sampleIndex >= backendFrameLength())
+      return false;
+
+    g_audioCalls.fetch_add(1, std::memory_order_acq_rel);
+    if (!backendIsReady() || !Audio_running())
+    {
+      g_audioCalls.fetch_sub(1, std::memory_order_acq_rel);
+      return false;
+    }
+
+    er301audio::rackInputSampleToEngine(inVolts,
+        g_inFrame + sampleIndex * NUM_INPUTS);
+
+    const bool immediate = Pump_streaming_output_is_immediate();
+    if (immediate)
+    {
+      std::memset(g_outFrame + sampleIndex * NUM_OUTPUTS, 0,
+                  NUM_OUTPUTS * sizeof(float));
+    }
+
+    const bool ok = Pump_callback_range(g_inFrame, g_outFrame, sampleIndex, 1);
+    if (ok)
+    {
+      if (immediate)
+      {
+        er301audio::engineOutputSampleToRack(
+            g_outFrame + sampleIndex * NUM_OUTPUTS, outVolts);
+      }
+      else
+      {
+        // Hybrid compatibility mode: InputTask and any range-capable prefix
+        // consumed this sample immediately, while the legacy suffix produces
+        // a complete output frame only on the final slice. Emit the previously
+        // completed frame so old and third-party DSP remain untouched.
+        er301audio::engineOutputSampleToRack(
+            g_streamingPreviousOutFrame + sampleIndex * NUM_OUTPUTS, outVolts);
+
+        if (sampleIndex + 1 == backendFrameLength())
+        {
+          std::memcpy(g_streamingPreviousOutFrame, g_outFrame,
+                      sizeof(float) * backendFrameLength() * NUM_OUTPUTS);
+        }
+      }
+    }
+    g_audioCalls.fetch_sub(1, std::memory_order_acq_rel);
+    return ok;
   }
 
   static bool backendGetDisplayFrame(uint8_t *mainRaw, uint8_t *subRaw)
@@ -954,6 +1053,9 @@ namespace
         er301::backendSampleRate,
         er301::backendSavePatchState,
         er301::backendProcessBlock,
+        er301::backendTryEnableStreaming,
+        er301::backendDisableStreaming,
+        er301::backendProcessStreamingSample,
         er301::backendGetDisplayFrame,
         er301::backendSetButton,
         er301::backendTurnEncoder,
@@ -1065,6 +1167,29 @@ namespace er301
       slot->api->processBlock(inVolts, outVolts);
     else if (outVolts)
       std::memset(outVolts, 0, sizeof(float) * MAX_FRAME * NUM_OUTPUTS);
+  }
+
+  bool Instance::tryEnableStreaming()
+  {
+    EngineSlot *slot = static_cast<EngineSlot *>(
+        mSlot.load(std::memory_order_acquire));
+    return slot && slot->api->tryEnableStreaming();
+  }
+
+  void Instance::disableStreaming()
+  {
+    EngineSlot *slot = static_cast<EngineSlot *>(
+        mSlot.load(std::memory_order_acquire));
+    if (slot) slot->api->disableStreaming();
+  }
+
+  bool Instance::processStreamingSample(const float *inVolts,
+                                        float *outVolts, int sampleIndex)
+  {
+    EngineSlot *slot = static_cast<EngineSlot *>(
+        mSlot.load(std::memory_order_acquire));
+    if (!slot || !outVolts) return false;
+    return slot->api->processStreamingSample(inVolts, outVolts, sampleIndex);
   }
 
   bool Instance::getDisplayFrame(uint8_t *mainRaw, uint8_t *subRaw)

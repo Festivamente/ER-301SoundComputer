@@ -9,8 +9,9 @@
 
 // Rack-rate adapter for the fixed-frame ER-301 engine.
 //
-// Native 48 kHz and 96 kHz paths bypass this class entirely. At every other
-// Rack rate, Rack's built-in Speex resampler converts the 20 inputs to the
+// When Rack's rate matches the selected ER-301 engine rate, this class is
+// bypassed. Otherwise (including switching a running 48 kHz instance to a
+// 96 kHz Rack rate), Rack's Speex resampler converts the 20 inputs to the
 // selected ER-301 firmware rate and converts the four engine outputs back to
 // Rack's rate. All storage is fixed-size and processSample() performs no
 // allocation, file access, logging, locking, or system calls.
@@ -19,12 +20,18 @@ namespace er301audio {
 class SampleRateAdapter
 {
 public:
+  // Low-latency SRC experiment. Speex quality 4 substantially shortens the
+  // resampling filters compared with quality 10, at some loss of stop-band
+  // rejection. The original quality-10 path can be restored with one change.
+  // These are NOT settings for the ER-301's own DSP frame size.
+  static constexpr int RESAMPLER_QUALITY = 4;
+  static constexpr int INPUT_BATCH_FRAMES = 4;
+
   SampleRateAdapter()
   {
-    // Speex quality 10 is the highest-quality mode exposed by Rack's
-    // SampleRateConverter. At equal rates no Speex state is allocated.
-    mInputConverter.setQuality(10);
-    mOutputConverter.setQuality(10);
+    // Equal-rate audio bypasses this adapter in ER301::process().
+    mInputConverter.setQuality(RESAMPLER_QUALITY);
+    mOutputConverter.setQuality(RESAMPLER_QUALITY);
   }
 
   void configure(int rackSampleRate, int engineSampleRate, int frameLength)
@@ -107,10 +114,9 @@ private:
   using InputFrame = rack::dsp::Frame<NUM_INPUTS>;
   using OutputFrame = rack::dsp::Frame<NUM_OUTPUTS>;
 
-  // A small input batch keeps per-sample Speex overhead low while adding less
-  // than 0.75 ms at 44.1 kHz. The existing ER-301 frame remains the dominant
-  // deterministic latency.
-  static constexpr int INPUT_BATCH_FRAMES = 32;
+  // Four host samples per batch limit batch-induced latency to at most three
+  // host samples (about 0.068 ms at 44.1 kHz). This calls Speex more often
+  // than the old 32-sample batch, so benchmark under realistic Rack loads.
   static constexpr int CONVERTED_INPUT_FRAMES = 512;
   static constexpr int ENGINE_INPUT_QUEUE_FRAMES = 2048;
   static constexpr int CONVERTED_OUTPUT_FRAMES = 4096;

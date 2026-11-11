@@ -15,6 +15,9 @@ namespace od
 		virtual ~OutputTask();
 
 		virtual void process(float *inputs, float *outputs);
+		virtual bool supportsRange() const { return true; }
+		virtual bool processRange(float *inputs, float *outputs,
+		                          int startSample, int sampleCount);
 		virtual void prepareForShutdown();
 
 		Inlet mOut1{"OUT1"};

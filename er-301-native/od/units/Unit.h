@@ -20,6 +20,9 @@ namespace od
 
 #ifndef SWIGLUA
     virtual void process();
+    // A unit only advertises partial processing when every object opts in.
+    bool supportsRange() const;
+    bool processRange(int startSample, int sampleCount);
     void disconnect();
     void connect(Unit *unit);
     static void connect(Unit *u0, Unit *u1);

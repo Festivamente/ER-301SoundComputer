@@ -126,6 +126,6 @@ See:
 - `THIRD_PARTY_NOTICES.md`
 - `er-301-native/LICENSE.md`
 
-Release version: **2.1.0**
+Release version: **2.1.1**
 
 VCV Rack port by **Jeff Triggs / Festivamente** — [https://festivamente.com](https://festivamente.com)

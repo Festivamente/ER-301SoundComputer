@@ -1,4 +1,5 @@
 #include <od/units/Unit.h>
+#include <od/config.h>
 #include <od/units/GraphCompiler.h>
 #include <hal/log.h>
 #include <hal/ops.h>
@@ -210,6 +211,37 @@ namespace od
       o->process();
 #endif
     }
+  }
+
+  bool Unit::supportsRange() const
+  {
+    if (mProcessingOrder.empty())
+      return false;
+    for (Object *object : mProcessingOrder)
+    {
+      if (!object->supportsRange())
+        return false;
+    }
+    return true;
+  }
+
+  bool Unit::processRange(int startSample, int sampleCount)
+  {
+    if (startSample < 0 || sampleCount <= 0 ||
+        startSample >= FRAMELENGTH || sampleCount > FRAMELENGTH - startSample ||
+        !supportsRange())
+      return false;
+
+    // Preserve the legacy frame-based parameter-ramp semantics:
+    // update once at the beginning of a frame, not on every slice.
+    for (Object *object : mProcessingOrder)
+    {
+      if (startSample == 0)
+        object->updateParameters();
+      if (!object->processRange(startSample, sampleCount))
+        return false;
+    }
+    return true;
   }
 
   // This is the naive version (but heck a Unit has at most 20 objects).

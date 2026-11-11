@@ -31,6 +31,11 @@ namespace od
       mMutex.leave();
     }
 
+    // The FifoProbeCache is scheduled immediately before ConnectionQueue,
+    // after OutputTask. Run active probes once after the final DSP slice.
+    // TaskScheduler rejects this opt-in if a range task follows the cache.
+    virtual bool supportsFrameEnd() const { return true; }
+
     virtual void process(float *inputs, float *outputs)
     {
       mMutex.enter();

@@ -103,10 +103,45 @@ void check(bool condition, const char *message)
   }
 }
 
-void runRateCase(int rackRate, int engineRate)
+// This test uses a deliberately simple resampler stub, so it verifies
+// batching/queue timing rather than Speex's real FIR group delay. The first
+// impulse is aligned to a 4-sample input batch at both sample-rate ratios.
+void runFastImpulseCase(int rackRate, int engineRate)
 {
   er301audio::SampleRateAdapter adapter;
-  const int frameLength = 128;
+  adapter.configure(rackRate, engineRate, 4);
+  const int impulseAt = 64;
+  int onset = -1;
+
+  for (int sample = 0; sample < 256; ++sample)
+  {
+    float input[er301audio::NUM_INPUTS] = {};
+    float output[er301audio::NUM_OUTPUTS] = {};
+    if (sample == impulseAt)
+      input[0] = 1.0f;
+
+    adapter.processSample(input, output,
+        [](const float *engineInput, float *engineOutput) {
+          for (int i = 0; i < 4; ++i)
+          {
+            for (int channel = 0; channel < er301audio::NUM_OUTPUTS;
+                 ++channel)
+              engineOutput[i * er301audio::NUM_OUTPUTS + channel] =
+                  engineInput[i * er301audio::NUM_INPUTS + channel];
+          }
+        });
+
+    if (onset < 0 && std::fabs(output[0]) > 0.5f)
+      onset = sample;
+  }
+
+  check(onset >= impulseAt && onset <= impulseAt + 24,
+        "four-sample SRC queue introduced excessive non-filter latency");
+}
+
+void runRateCase(int rackRate, int engineRate, int frameLength)
+{
+  er301audio::SampleRateAdapter adapter;
   adapter.configure(rackRate, engineRate, frameLength);
 
   long long renderedFrames = 0;
@@ -166,9 +201,19 @@ void runRateCase(int rackRate, int engineRate)
 
 int main()
 {
-  runRateCase(44100, 48000);
-  runRateCase(88200, 96000);
-  runRateCase(192000, 96000);
+  runFastImpulseCase(44100, 48000);
+  runFastImpulseCase(96000, 48000);
+
+  // Both normal frame sizes and the experimental four-sample engine frame.
+  // Explicitly exercise downsampling (the 96 -> 48 kHz live-switch scenario)
+  // and upsampling (44.1 -> 48 kHz), as well as high host sample rates.
+  for (int frameLength : {4, 16, 32, 128})
+  {
+    runRateCase(44100, 48000, frameLength);
+    runRateCase(96000, 48000, frameLength);
+    runRateCase(88200, 96000, frameLength);
+    runRateCase(192000, 96000, frameLength);
+  }
 
   if (failures)
   {

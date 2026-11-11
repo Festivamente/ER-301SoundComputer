@@ -36,6 +36,14 @@ namespace od
   {
   }
 
+  bool Object::processRange(int startSample, int sampleCount)
+  {
+    (void)startSample;
+    (void)sampleCount;
+    // Unsupported by default: never process partial frames silently.
+    return false;
+  }
+
   Object::~Object()
   {
     // disconnect all inlets

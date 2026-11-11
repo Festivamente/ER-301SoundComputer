@@ -19,6 +19,23 @@ namespace od
         {
         }
 
+        // Phase 2B: opt-in only. A task must guarantee successful execution
+        // for every valid partial range before advertising range support.
+        virtual bool supportsRange() const { return false; }
+        // Phase 2E: tasks which intentionally run once AFTER all DSP slices
+        // can opt in here. The scheduler only permits them as an ordered
+        // suffix, so their legacy end-of-frame execution order is retained.
+        virtual bool supportsFrameEnd() const { return false; }
+        virtual bool processRange(float *inputs, float *outputs,
+                                  int startSample, int sampleCount)
+        {
+            (void)inputs;
+            (void)outputs;
+            (void)startSample;
+            (void)sampleCount;
+            return false;
+        }
+
         // Called by TaskScheduler before any scheduled task is released.
         // Implementations should sever cross-task graph connections while
         // every task is still kept alive by the scheduler.

@@ -1,4 +1,6 @@
 #include <od/tasks/UnitChain.h>
+#include <od/tasks/StreamingFrameIO.h>
+#include <od/config.h>
 #include <od/extras/LookupTables.h>
 #include <hal/concurrency/Thread.h>
 #include <hal/audio.h>
@@ -204,6 +206,8 @@ namespace od
   void UnitChain::process(float *inputs, float *outputs)
   {
     mMutex.enter();
+    // A full-frame execution cancels any experimental partial-frame state.
+    mNextRangeSample = 0;
     for (Unit *unit : mUnits)
     {
       if (unit->mEnabled)
@@ -240,6 +244,108 @@ namespace od
     }
 
     mMutex.leave();
+  }
+
+  bool UnitChain::supportsRange() const
+  {
+    mMutex.enter();
+    // Deliberately conservative: even currently bypassed/disabled units
+    // can be enabled during a graph edit. Do not stream until all support it.
+    bool supported = true;
+    for (Unit *unit : mUnits)
+    {
+      if (!unit->supportsRange())
+      {
+        supported = false;
+        break;
+      }
+    }
+    mMutex.leave();
+    return supported;
+  }
+
+  bool UnitChain::processRange(float *inputs, float *outputs,
+                               int startSample, int sampleCount)
+  {
+    (void)inputs;
+    (void)outputs;
+    if (!streaming::validFrameRange(startSample, sampleCount, FRAMELENGTH))
+      return false;
+
+    mMutex.enter();
+    if (startSample != mNextRangeSample)
+    {
+      mMutex.leave();
+      return false;
+    }
+
+    // Validate the entire chain BEFORE running any unit. No fallback to
+    // legacy processing is safe once a partial frame has advanced DSP state.
+    for (Unit *unit : mUnits)
+    {
+      if (!unit->supportsRange())
+      {
+        mMutex.leave();
+        return false;
+      }
+    }
+
+    // Legacy semantics: a fade advances ONCE per frame. Even when the
+    // ramp reaches its goal on the first slice, subsequent slices must use
+    // the same frame's interpolation weights.
+    if (startSample == 0)
+    {
+      mRangeMuted = mMuted;
+      mRangeFading = !mRangeMuted && mFade.notFinished();
+      if (mRangeFading)
+      {
+        mRangeFadeStart = mFade.mValue;
+        mRangeFadeSlope = mFade.step() - mRangeFadeStart;
+      }
+    }
+
+    for (Unit *unit : mUnits)
+    {
+      if (unit->mEnabled)
+      {
+        unit->mExecutionTimer.start();
+        bool success = unit->processRange(startSample, sampleCount);
+        unit->mExecutionTimer.stop();
+        if (!success)
+        {
+          // A unit violated its advertised range contract. The scheduler
+          // disables range processing; never rerun this as a full frame.
+          mMutex.leave();
+          return false;
+        }
+      }
+    }
+
+    bool success = true;
+    if (!mRangeMuted)
+    {
+      if (mRangeFading)
+      {
+        success = mLeftOutput.fadeRange(mRangeFadeSlope, mRangeFadeStart,
+                                        startSample, sampleCount);
+        if (success && mChannelCount > 1)
+          success = mRightOutput.fadeRange(mRangeFadeSlope, mRangeFadeStart,
+                                          startSample, sampleCount);
+      }
+      else
+      {
+        success = mLeftOutput.copyRange(startSample, sampleCount);
+        if (success && mChannelCount > 1)
+          success = mRightOutput.copyRange(startSample, sampleCount);
+      }
+    }
+    if (success)
+    {
+      const int nextSample = startSample + sampleCount;
+      mNextRangeSample = nextSample == FRAMELENGTH ? 0 : nextSample;
+    }
+    mMutex.leave();
+    return success;
   }
 
   void UnitChain::setInput(int i, Outlet *outlet)
@@ -360,12 +466,15 @@ namespace od
   void UnitChain::lock()
   {
     mMutex.enter();
+    // A graph edit invalidates any in-progress experimental range schedule.
+    mNextRangeSample = 0;
     disconnectInternals();
   }
 
   void UnitChain::unlock()
   {
     connectInternals();
+    mNextRangeSample = 0;
     mMutex.leave();
   }
 

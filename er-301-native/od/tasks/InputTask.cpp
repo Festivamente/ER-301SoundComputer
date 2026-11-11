@@ -1,5 +1,6 @@
 #include <od/tasks/InputTask.h>
 #include <od/config.h>
+#include <od/tasks/StreamingFrameIO.h>
 #include <hal/channels.h>
 #include <string.h>
 
@@ -91,6 +92,49 @@ namespace od
     INPUTCOPY(IN2);
     INPUTCOPY(IN3);
     INPUTCOPY(IN4);
+  }
+
+  bool InputTask::processRange(float *inputs, float *outputs,
+                               int startSample, int sampleCount)
+  {
+    (void)outputs;
+    if (!inputs || !streaming::validFrameRange(startSample, sampleCount, FRAMELENGTH))
+      return false;
+
+    // Match the legacy display snapshot: update only at the end of a frame.
+    if (startSample + sampleCount == FRAMELENGTH)
+    {
+      memcpy(mLastInput,
+             &inputs[NUM_INPUT_CHANNELS * (FRAMELENGTH - 1)],
+             NUM_INPUT_CHANNELS * sizeof(float));
+    }
+
+#define INPUTCOPY_SLICE(x) \
+    if (m##x.isConnected()) \
+      streaming::copyInputChannel(m##x.buffer(), inputs, INPUT_##x, \
+                                  startSample, sampleCount);
+    INPUTCOPY_SLICE(A1);
+    INPUTCOPY_SLICE(A2);
+    INPUTCOPY_SLICE(A3);
+    INPUTCOPY_SLICE(B1);
+    INPUTCOPY_SLICE(B2);
+    INPUTCOPY_SLICE(B3);
+    INPUTCOPY_SLICE(C1);
+    INPUTCOPY_SLICE(C2);
+    INPUTCOPY_SLICE(C3);
+    INPUTCOPY_SLICE(D1);
+    INPUTCOPY_SLICE(D2);
+    INPUTCOPY_SLICE(D3);
+    INPUTCOPY_SLICE(G1);
+    INPUTCOPY_SLICE(G2);
+    INPUTCOPY_SLICE(G3);
+    INPUTCOPY_SLICE(G4);
+    INPUTCOPY_SLICE(IN1);
+    INPUTCOPY_SLICE(IN2);
+    INPUTCOPY_SLICE(IN3);
+    INPUTCOPY_SLICE(IN4);
+#undef INPUTCOPY_SLICE
+    return true;
   }
 
   void InputTask::prepareForShutdown()
