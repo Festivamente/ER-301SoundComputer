@@ -65,6 +65,11 @@ grep -q 'soundcomputer_prepare_native_package' \
   "$ENGINE_ROOT/libs/lua54/loadlib.c"
 grep -q 'patchNativePackageMachO' \
   "$ENGINE_ROOT/emu/NativePackageHost.cpp"
+grep -q 'er301host.dll' \
+  "$ENGINE_ROOT/emu/NativePackageHost.cpp"
+grep -q 'er301%04u.dll' \
+  "$ROOT/src/er301_bridge.cpp"
+grep -q 'windows-host-exports.py' "$ROOT/Makefile"
 grep -q 'lua_setglobal(L, "dirAll")' \
   "$ENGINE_ROOT/od/glue/AppInterpreter.cpp"
 grep -q 'local iterator = dirAll or dir' \

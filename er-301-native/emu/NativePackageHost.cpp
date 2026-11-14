@@ -16,11 +16,15 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <new>
 #include <sstream>
 #include <string>
+#include <vector>
 
-#if defined(__APPLE__)
+#if defined(_WIN32)
+#include <windows.h>
+#elif defined(__APPLE__)
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <libgen.h>
@@ -46,7 +50,7 @@ namespace
     return std::string(data, length);
   }
 
-#if defined(__APPLE__)
+#if defined(_WIN32) || defined(__APPLE__)
   static uint64_t fnv1a(const std::string &text, uint64_t value = 1469598103934665603ULL)
   {
     for (std::size_t i = 0; i < text.size(); ++i)
@@ -57,6 +61,165 @@ namespace
     return value;
   }
 
+  static std::string basenameOf(const std::string &path)
+  {
+    const std::size_t slash = path.find_last_of("/\\");
+    return slash == std::string::npos ? path : path.substr(slash + 1);
+  }
+
+  static std::string directoryOf(const std::string &path)
+  {
+    const std::size_t slash = path.find_last_of("/\\");
+    if (slash == std::string::npos)
+      return ".";
+    if (slash == 0)
+      return path.substr(0, 1);
+    return path.substr(0, slash);
+  }
+
+#if defined(_WIN32)
+  static const char windowsEngineImageAnchor = 0;
+
+  static std::string windowsError(const char *prefix, DWORD code)
+  {
+    std::ostringstream message;
+    message << prefix << " (Windows error " << code << ").";
+    return message.str();
+  }
+
+  static bool ensureDirectory(const std::string &path, std::string &error)
+  {
+    const DWORD attributes = ::GetFileAttributesA(path.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES)
+    {
+      if (attributes & FILE_ATTRIBUTE_DIRECTORY)
+        return true;
+      error = "Native-package cache path exists but is not a directory: " + path;
+      return false;
+    }
+
+    const DWORD inspectError = ::GetLastError();
+    if (inspectError != ERROR_FILE_NOT_FOUND &&
+        inspectError != ERROR_PATH_NOT_FOUND)
+    {
+      error = windowsError("Could not inspect native-package cache path", inspectError);
+      return false;
+    }
+
+    const std::string parent = directoryOf(path);
+    if (parent != path && parent != "." && !ensureDirectory(parent, error))
+      return false;
+
+    if (!::CreateDirectoryA(path.c_str(), 0))
+    {
+      const DWORD createError = ::GetLastError();
+      if (createError != ERROR_ALREADY_EXISTS)
+      {
+        error = windowsError("Could not create native-package cache directory", createError);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static std::string currentEngineImage(std::string &error)
+  {
+    HMODULE module = 0;
+    if (!::GetModuleHandleExA(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCSTR>(&windowsEngineImageAnchor), &module))
+    {
+      error = windowsError("Could not locate the current ER-301 Sound Computer engine image",
+                           ::GetLastError());
+      return std::string();
+    }
+
+    std::vector<char> path(32768, 0);
+    const DWORD length = ::GetModuleFileNameA(
+        module, path.data(), static_cast<DWORD>(path.size()));
+    if (length == 0 || static_cast<std::size_t>(length) >= path.size())
+    {
+      error = windowsError("Could not read the current ER-301 Sound Computer engine path",
+                           ::GetLastError());
+      return std::string();
+    }
+    return std::string(path.data(), length);
+  }
+
+  static bool patchWindowsPackageHost(const std::string &source,
+                                      const std::string &destination,
+                                      const std::string &engineBasename,
+                                      std::string &error)
+  {
+    static const char neutralHost[] = "er301host.dll";
+    const std::size_t neutralLength = sizeof(neutralHost) - 1;
+    if (engineBasename.size() > neutralLength)
+    {
+      error = "Windows ER-301 engine basename is too long for the neutral package-host ABI: " +
+              engineBasename;
+      return false;
+    }
+
+    std::ifstream input(source.c_str(), std::ios::binary);
+    if (!input)
+    {
+      error = "Could not open Windows native package for host binding: " + source;
+      return false;
+    }
+    std::vector<char> bytes((std::istreambuf_iterator<char>(input)),
+                            std::istreambuf_iterator<char>());
+    if (bytes.empty())
+    {
+      error = "Windows native package is empty: " + source;
+      return false;
+    }
+
+    for (std::size_t i = 0; i + neutralLength < bytes.size(); ++i)
+    {
+      if (std::memcmp(bytes.data() + i, neutralHost, neutralLength) == 0 &&
+          bytes[i + neutralLength] == '\0')
+      {
+        std::memset(bytes.data() + i, 0, neutralLength);
+        std::memcpy(bytes.data() + i, engineBasename.data(),
+                    engineBasename.size());
+        i += neutralLength - 1;
+      }
+    }
+
+    // A native module that does not use the ER-301 host ABI still remains a
+    // valid Windows package. Preserve it unchanged in the private cache.
+    const std::string temporary = destination + ".tmp";
+    {
+      std::ofstream output(temporary.c_str(),
+                           std::ios::binary | std::ios::trunc);
+      if (!output)
+      {
+        error = "Could not create prepared Windows native package: " + temporary;
+        return false;
+      }
+      output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+      if (!output)
+      {
+        error = "Could not write prepared Windows native package: " + temporary;
+        output.close();
+        ::DeleteFileA(temporary.c_str());
+        return false;
+      }
+    }
+
+    if (!::MoveFileExA(temporary.c_str(), destination.c_str(),
+                       MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    {
+      const DWORD moveError = ::GetLastError();
+      ::DeleteFileA(temporary.c_str());
+      error = windowsError("Could not install prepared Windows native package", moveError);
+      return false;
+    }
+    return true;
+  }
+
+#elif defined(__APPLE__)
   static bool ensureDirectory(const std::string &path, std::string &error)
   {
     if (path.empty())
@@ -163,22 +326,7 @@ namespace
     return true;
   }
 
-  static std::string basenameOf(const std::string &path)
-  {
-    const std::size_t slash = path.find_last_of('/');
-    return slash == std::string::npos ? path : path.substr(slash + 1);
-  }
-
-  static std::string directoryOf(const std::string &path)
-  {
-    const std::size_t slash = path.find_last_of('/');
-    if (slash == std::string::npos)
-      return ".";
-    if (slash == 0)
-      return "/";
-    return path.substr(0, slash);
-  }
-
+#endif
 #endif
 }
 
@@ -230,9 +378,10 @@ extern "C"
     new (self) od::Option(foreignString(name), value);
   }
 
-  // Called by Lua's package loader before dlopen(). The returned image is a
-  // private, ad-hoc-signed copy whose ER-301 and Lua symbols bind to this
-  // exact engine image rather than another live ER-301 Sound Computer module.
+  // Called by Lua's package loader before the platform dynamic loader. The
+  // returned image is rebound to this exact ER-301 engine image: Mach-O uses
+  // explicit install-name rebinding on macOS, while Windows rewrites the
+  // neutral er301host.dll import to the current private engine basename.
   __attribute__((used, visibility("default")))
   int soundcomputer_prepare_native_package(const char *sourcePath, char *outputPath,
                                     std::size_t outputCapacity,
@@ -240,7 +389,75 @@ extern "C"
                                     std::size_t errorCapacity)
   {
     std::string error;
-#if defined(__APPLE__)
+#if defined(_WIN32)
+    if (!sourcePath || !outputPath || outputCapacity == 0)
+    {
+      error = "Invalid native-package preparation request.";
+    }
+    else
+    {
+      const std::string source(sourcePath);
+      const std::string engine = currentEngineImage(error);
+      if (!engine.empty())
+      {
+        const std::string engineBasename = basenameOf(engine);
+        static const std::size_t neutralHostLength = sizeof("er301host.dll") - 1;
+        if (engineBasename.size() > neutralHostLength)
+        {
+          error = "Current Windows ER-301 engine filename cannot bind the neutral package ABI: " +
+                  engineBasename;
+        }
+        else
+        {
+          WIN32_FILE_ATTRIBUTE_DATA sourceInfo;
+          uint64_t hash = fnv1a(source);
+          hash = fnv1a(engine, hash);
+          if (::GetFileAttributesExA(source.c_str(), GetFileExInfoStandard,
+                                     &sourceInfo))
+          {
+            std::ostringstream stamp;
+            stamp << sourceInfo.nFileSizeHigh << ':' << sourceInfo.nFileSizeLow
+                  << ':' << sourceInfo.ftLastWriteTime.dwHighDateTime << ':'
+                  << sourceInfo.ftLastWriteTime.dwLowDateTime;
+            hash = fnv1a(stamp.str(), hash);
+          }
+
+          const std::string cacheDirectory =
+              directoryOf(source) + "/.er-301soundcomputer-native";
+          if (ensureDirectory(cacheDirectory, error))
+          {
+            std::ostringstream name;
+            name << basenameOf(source) << "." << std::hex << hash << ".dll";
+            const std::string destination = cacheDirectory + "/" + name.str();
+
+            const DWORD destinationAttributes =
+                ::GetFileAttributesA(destination.c_str());
+            if (destinationAttributes == INVALID_FILE_ATTRIBUTES &&
+                !patchWindowsPackageHost(source, destination,
+                                         engineBasename, error))
+            {
+              // patchWindowsPackageHost supplied the detailed error.
+            }
+            else if (error.empty())
+            {
+              if (destination.size() + 1 > outputCapacity)
+              {
+                error = "Prepared native-package path is too long.";
+              }
+              else
+              {
+                std::memcpy(outputPath, destination.c_str(),
+                            destination.size() + 1);
+                if (errorText && errorCapacity)
+                  errorText[0] = 0;
+                return 1;
+              }
+            }
+          }
+        }
+      }
+    }
+#elif defined(__APPLE__)
     if (!sourcePath || !outputPath || outputCapacity == 0)
     {
       error = "Invalid native-package preparation request.";

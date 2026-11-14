@@ -166,6 +166,13 @@ ifdef ARCH_LIN
 endif
 
 ifdef ARCH_WIN
+  # Native ER-301 packages are linked against the neutral er301host.dll ABI.
+  # Export exactly that ABI from the Rack engine image; do not expose the
+  # compiler/libstdc++ runtime with --export-all-symbols.
+  ER301_WINDOWS_EXPORT_DEF := build/er301host-exports.def
+  ER301_WINDOWS_NM := $(if $(strip $(NM)),$(NM),nm)
+  LDFLAGS += $(ER301_WINDOWS_EXPORT_DEF)
+
   LDFLAGS += -Wl,--start-group
   LDFLAGS += $(ER301_SUPPORT_LIBS)
   LDFLAGS += -lSDL2_ttf -lfreetype
@@ -243,6 +250,17 @@ $(ER301_HOST_LIB): $(ER301_NATIVE_TREE_DEPS)
 
 $(ER301_LIBS):
 	+$(MAKE) -C $(ER301_DIR) er301-host $(ER301_BUILD_ARGS)
+
+ifdef ARCH_WIN
+$(ER301_WINDOWS_EXPORT_DEF): $(ER301_LIBS) scripts/windows-host-exports.py
+	@mkdir -p $(@D)
+	@echo "Generating Windows ER-301 package-host exports: $@"
+	@python3 scripts/windows-host-exports.py "$@" $(ER301_LIBS) --nm "$(ER301_WINDOWS_NM)" --library plugin.dll
+
+# Rack's plugin rule is supplied by the SDK. Add the generated .def as an
+# order-only prerequisite so it exists before link without also entering $^.
+plugin.dll: | $(ER301_WINDOWS_EXPORT_DEF)
+endif
 
 # Rack's clean target removes plugin output. Add target-specific ER-301 output
 # as a prerequisite so successive toolchain targets cannot reuse stale objects.

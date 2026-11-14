@@ -372,12 +372,37 @@ static void pusherror (lua_State *L) {
 }
 
 static void lsys_unloadlib (void *lib) {
+#if defined(ER301_VCV_HOST)
+  /* Keep native packages resident for the lifetime of the engine image.
+  ** SWIG keeps process/static module links that are unsafe after unloading. */
+  (void)lib;
+#else
   FreeLibrary((HMODULE)lib);
+#endif
 }
 
+#if defined(ER301_VCV_HOST)
+/* Implemented by emu/NativePackageHost.cpp in every isolated engine image. */
+int soundcomputer_prepare_native_package(const char *sourcePath, char *outputPath,
+                                  size_t outputCapacity, char *errorText,
+                                  size_t errorCapacity);
+#endif
 
 static void *lsys_load (lua_State *L, const char *path, int seeglb) {
-  HMODULE lib = LoadLibraryExA(path, NULL, LUA_LLE_FLAGS);
+  const char *loadPath = path;
+#if defined(ER301_VCV_HOST)
+  char preparedPath[16384];
+  char preparationError[2048];
+  if (!soundcomputer_prepare_native_package(path, preparedPath,
+                                     sizeof(preparedPath), preparationError,
+                                     sizeof(preparationError))) {
+    lua_pushstring(L, preparationError[0] ? preparationError :
+                   "could not prepare isolated native package image");
+    return NULL;
+  }
+  loadPath = preparedPath;
+#endif
+  HMODULE lib = LoadLibraryExA(loadPath, NULL, LUA_LLE_FLAGS);
   (void)(seeglb);  /* not used: symbols are 'global' by default */
   if (lib == NULL) pusherror(L);
   return lib;

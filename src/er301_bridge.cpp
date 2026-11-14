@@ -362,6 +362,7 @@ namespace
     std::lock_guard<std::mutex> lock(slotMutex());
     std::vector<std::unique_ptr<EngineSlot> > &slots = engineSlots();
 
+#if !defined(_WIN32)
     if (slots.empty())
     {
       std::unique_ptr<EngineSlot> local(new EngineSlot());
@@ -371,6 +372,7 @@ namespace
       local->imagePath = "plugin image";
       slots.push_back(std::move(local));
     }
+#endif
 
     for (std::size_t i = 0; i < slots.size(); ++i)
     {
@@ -402,11 +404,23 @@ namespace
       return nullptr;
 
 #if defined(_WIN32)
-    const char *filename = "ER-301SoundComputerEngine.dll";
+    // Native package binaries import the neutral 13-character host identity
+    // "er301host.dll". Give each private Windows engine image its own equally
+    // short basename so the package loader can rewrite that import in-place
+    // without changing PE section sizes and without cross-instance binding.
+    if (number > 9999)
+    {
+      error = "Too many private ER-301 engine images for the Windows package-host ABI.";
+      return nullptr;
+    }
+    char windowsFilename[32];
+    std::snprintf(windowsFilename, sizeof(windowsFilename),
+                  "er301%04u.dll", number);
+    const std::string filename(windowsFilename);
 #elif defined(__APPLE__)
-    const char *filename = "ER-301SoundComputerEngine.dylib";
+    const std::string filename("ER-301SoundComputerEngine.dylib");
 #else
-    const char *filename = "ER-301SoundComputerEngine.so";
+    const std::string filename("ER-301SoundComputerEngine.so");
 #endif
     const std::string destination = slotDirectory + "/" + filename;
     if (!copyImageAtomically(source, destination, error))
