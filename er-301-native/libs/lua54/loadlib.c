@@ -163,12 +163,50 @@ int soundcomputer_prepare_native_package(const char *sourcePath, char *outputPat
                                   size_t errorCapacity);
 
 #if defined(__linux__)
+static void *hostLinuxGlobalHandle = NULL;
+
 static int host_is_secondary_linux_engine_image (void) {
   Dl_info info;
   if (dladdr((const void *)&host_is_secondary_linux_engine_image, &info) == 0 ||
       info.dli_fname == NULL)
     return 0;
   return strstr(info.dli_fname, "/engine-images/slot-") != NULL;
+}
+
+/*
+** Rack loads plugins with local dynamic-loader scope on Linux. Native ER-301
+** packages are intentionally linked with unresolved ER-301/Lua symbols that
+** the host provides, so a later dlopen() cannot resolve those imports unless
+** this already-loaded host image participates in the global lookup scope.
+**
+** glibc supports promoting an existing RTLD_LOCAL object by reopening it with
+** RTLD_NOLOAD | RTLD_GLOBAL. Keep the returned handle for the lifetime of the
+** Rack process, matching the native-package handle cache below.
+*/
+static int host_promote_linux_host_image (lua_State *L) {
+  Dl_info info;
+  const char *error;
+
+  if (hostLinuxGlobalHandle != NULL)
+    return 1;
+
+  if (dladdr((const void *)&host_promote_linux_host_image, &info) == 0 ||
+      info.dli_fname == NULL) {
+    lua_pushliteral(L, "could not locate the Linux ER-301 Sound Computer host image");
+    return 0;
+  }
+
+  dlerror();
+  hostLinuxGlobalHandle =
+      dlopen(info.dli_fname, RTLD_NOW | RTLD_NOLOAD | RTLD_GLOBAL);
+  if (hostLinuxGlobalHandle == NULL) {
+    error = dlerror();
+    lua_pushfstring(L, "could not promote the Linux ER-301 Sound Computer host image: %s",
+                    error ? error : "unknown dlopen error");
+    return 0;
+  }
+
+  return 1;
 }
 #endif
 
@@ -236,6 +274,9 @@ static void *lsys_load (lua_State *L, const char *path, int seeglb) {
                        "currently supported on macOS only");
     return NULL;
   }
+
+  if (!host_promote_linux_host_image(L))
+    return NULL;
 #endif
 
   void *lib = host_findloadedlib(loadPath);
