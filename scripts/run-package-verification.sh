@@ -51,6 +51,12 @@ grep -q 'seedBundledPackageOnce' "$ROOT/src/ER301.cpp"
 grep -q 'installBundledCoreOnce' \
   "$ROOT/res/er301/xroot/Package/Manager.lua"
 grep -q 'prepareSharedInstalledPackages' "$ROOT/src/ER301.cpp"
+grep -q 'recordPackagePlatform' "$ROOT/src/ER301.cpp"
+grep -q '\.vcv-package-platform-' "$ROOT/src/ER301.cpp"
+grep -q 'getHostPackagePlatform' \
+  "$ROOT/res/er301/xroot/Package/Manager.lua"
+grep -q 'nativeRoot = "native/"' \
+  "$ROOT/res/er301/xroot/Package/Manager.lua"
 if grep -q 'legacyRepositories\|copyPackageArchives' "$ROOT/src/ER301.cpp"; then
   echo "Legacy package import is still present." >&2
   exit 1

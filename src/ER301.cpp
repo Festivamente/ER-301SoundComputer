@@ -530,6 +530,16 @@ static bool replaceWithDirectorySymlink(const std::string& linkPath,
                                         const std::string& targetPath,
                                         std::string& error) {
 #ifdef _WIN32
+    // Windows does not use a real symlink here because normal Rack users
+    // cannot be assumed to have Developer Mode or symbolic-link privileges.
+    // The fallback is therefore an instance-private copy.  Once that copy
+    // exists it is authoritative: Package Manager may have installed,
+    // upgraded, or removed packages inside it, so replacing it on every
+    // module initialization would silently destroy the instance's package
+    // state.
+    if (system::isDirectory(linkPath))
+        return true;
+
     if (system::exists(linkPath)) {
         if (!system::remove(linkPath)) {
             if (!removeDirectoryTree(linkPath, error))
@@ -541,9 +551,8 @@ static bool replaceWithDirectorySymlink(const std::string& linkPath,
     if (!parent.empty() && !ensureDirectory(parent, error))
         return false;
 
-    // Normal Windows users cannot be assumed to have symbolic-link
-    // privileges or Developer Mode. Mirror the shared package directory
-    // into this instance instead.
+    // Initialize a new instance from the shared package directory.  Future
+    // changes remain private to this instance on Windows.
     if (!copyDirectoryTreeWindows(targetPath, linkPath, error))
         return false;
 
@@ -600,6 +609,12 @@ static bool replaceWithFileSymlink(const std::string& linkPath,
                                    const std::string& targetPath,
                                    std::string& error) {
 #ifdef _WIN32
+    // As with directories above, the Windows fallback is an instance-private
+    // file.  Preserve an existing database instead of overwriting package
+    // install/uninstall state at every module initialization.
+    if (system::isFile(linkPath))
+        return true;
+
     if (system::exists(linkPath)) {
         if (!system::remove(linkPath)) {
             if (!removeDirectoryTree(linkPath, error))
@@ -611,9 +626,9 @@ static bool replaceWithFileSymlink(const std::string& linkPath,
     if (!parent.empty() && !ensureDirectory(parent, error))
         return false;
 
-    // Same rule for files: no Windows symlink privilege required.
-    // If the shared database does not exist yet, create an empty instance
-    // database and let the ER-301 package system populate it.
+    // Same rule for files: no Windows symlink privilege required.  Initialize
+    // a new instance from the shared database if one exists; otherwise create
+    // an empty private database and let the ER-301 package system populate it.
     if (system::isFile(targetPath)) {
         const std::wstring sourceWide = windowsWidePath(targetPath);
         const std::wstring destinationWide = windowsWidePath(linkPath);
@@ -688,6 +703,54 @@ static bool fileContainsText(const std::string& path,
     return contents.str().find(needle) != std::string::npos;
 }
 
+static const char* packagePlatformTag() {
+#if defined(_WIN32)
+    return "win-x64";
+#elif defined(__APPLE__) && defined(__aarch64__)
+    return "mac-arm64";
+#elif defined(__APPLE__) && defined(__x86_64__)
+    return "mac-x64";
+#elif defined(__linux__) && defined(__x86_64__)
+    return "lin-x64";
+#else
+    return "unknown";
+#endif
+}
+
+static bool recordPackagePlatform(const std::string& instanceRear,
+                                  std::string& error) {
+    static const char* const tags[] = {
+        "win-x64", "mac-arm64", "mac-x64", "lin-x64"};
+    const std::string prefix = ".vcv-package-platform-";
+    const std::string current = packagePlatformTag();
+
+    // A saved Rack patch can move between machines/architectures. Keep exactly
+    // one marker so the package manager never sees a stale native variant.
+    for (const char* tag : tags) {
+        if (current == tag)
+            continue;
+        const std::string stale = system::join(instanceRear, prefix + tag);
+        if (system::exists(stale) && !system::remove(stale)) {
+            error = "Could not remove stale package-platform marker: " + stale;
+            return false;
+        }
+    }
+
+    if (current == "unknown")
+        return true;
+
+    const std::string marker = system::join(instanceRear, prefix + current);
+    if (!system::isFile(marker)) {
+        std::ofstream output(marker.c_str(), std::ios::out | std::ios::trunc);
+        if (!output) {
+            error = "Could not record package platform: " + marker;
+            return false;
+        }
+        output << current << "\n";
+    }
+    return true;
+}
+
 static bool prepareSharedInstalledPackages(const std::string& sharedRoot,
                                            const std::string& instanceRear,
                                            std::string& error) {
@@ -737,9 +800,11 @@ static bool prepareSharedInstalledPackages(const std::string& sharedRoot,
         !ensureDirectory(instanceMeta, error))
         return false;
 
-    // Installed packages and their installed-state database are global. Each
-    // engine still receives its own Lua state and its own prepared native
-    // image, but archives and extracted package assets exist only once.
+    // On POSIX hosts, installed packages and their installed-state database
+    // are global via symlinks.  Windows uses persistent per-instance copies
+    // because ordinary users cannot be assumed to have symlink privileges.
+    // The Package Manager checks the marker below so one-time bootstrap state
+    // follows the same lifetime as the package store on Windows.
     if (!replaceWithDirectorySymlink(
             system::join(instanceVersion, "libs"), sharedLibs, error))
         return false;
@@ -751,6 +816,21 @@ static bool prepareSharedInstalledPackages(const std::string& sharedRoot,
             system::join(instanceMeta, "packages.db"),
             sharedInstalledDb, error))
         return false;
+
+#ifdef _WIN32
+    const std::string privatePackageStoreMarker =
+        system::join(instanceRear, ".vcv-private-package-store");
+    if (!system::isFile(privatePackageStoreMarker)) {
+        std::ofstream markerFile(privatePackageStoreMarker.c_str(),
+                                 std::ios::out | std::ios::trunc);
+        if (!markerFile) {
+            error = "Could not record Windows private package-store mode: " +
+                    privatePackageStoreMarker;
+            return false;
+        }
+        markerFile << "windows-private-package-store\n";
+    }
+#endif
 
     const std::string firmwareConfig =
         system::join(instanceRear, "firmware.cfg");
@@ -857,6 +937,8 @@ static bool resolveRuntimePaths(er301::RuntimePaths& paths,
         return false;
 
     if (!prepareSharedInstalledPackages(sharedRoot, paths.rearPath, error))
+        return false;
+    if (!recordPackagePlatform(paths.rearPath, error))
         return false;
 
     paths.bundledRuntimeRoot = asset::plugin(pluginInstance, "res/er301");
@@ -2062,6 +2144,7 @@ struct ER301DisplayWidget : TransparentWidget {
     uint8_t subRaw[er301::SUB_BYTES] = {};
     std::vector<uint8_t> rgba;
     int image = -1;
+    NVGcontext* imageContext = nullptr;
     bool haveFrame = false;
 
     // Main display uses the ER-301's native 4-bit brightness values. The
@@ -2137,13 +2220,46 @@ struct ER301DisplayWidget : TransparentWidget {
             return;
         }
         // Self-lit layer (visible with room lights down, like a real OLED).
-        if (image < 0) {
+        // Rack Pro can destroy/recreate its NanoVG context when plugin editor
+        // windows are closed, reopened, duplicated, or moved between host
+        // contexts. NanoVG image IDs are valid only in the context that created
+        // them, so never carry a cached texture ID into a different context.
+        if (imageContext != args.vg) {
+            imageContext = args.vg;
+            image = -1;
+        }
+
+        // A stale/invalid image ID may also survive if a backend recreates its
+        // graphics resources while reusing the same NVGcontext address. Verify
+        // the cached image before updating it.
+        if (image > 0) {
+            int imageWidth = 0;
+            int imageHeight = 0;
+            nvgImageSize(args.vg, image, &imageWidth, &imageHeight);
+            if (imageWidth != cols || imageHeight != rows)
+                image = -1;
+        }
+
+        if (image <= 0) {
             image = nvgCreateImageRGBA(args.vg, cols, rows, 0, rgba.data());
+            // NanoVG returns 0 when texture creation fails. Keep the sentinel
+            // negative so the next UI frame retries instead of permanently
+            // rendering an invalid image handle as a white rectangle.
+            if (image <= 0) {
+                image = -1;
+                nvgBeginPath(args.vg);
+                nvgRect(args.vg, 0.f, 0.f, box.size.x, box.size.y);
+                nvgFillColor(args.vg, nvgRGB(0, 0, 0));
+                nvgFill(args.vg);
+                return;
+            }
+            haveFrame = false;
         }
         else if (haveFrame) {
             nvgUpdateImage(args.vg, image, rgba.data());
             haveFrame = false;
         }
+
         NVGpaint paint = nvgImagePattern(args.vg, 0.f, 0.f,
                                          box.size.x, box.size.y, 0.f,
                                          image, 1.f);

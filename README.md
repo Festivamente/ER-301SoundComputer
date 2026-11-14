@@ -91,9 +91,9 @@ The VCV port ships `core-0.7.0-dev1.8.pkg` on the virtual front card and install
 
 ## Third-party packages
 
-Third-party ER-301 packages are currently supported on Apple Silicon Macs only.
+VCV-301 supports platform-specific native payloads in ER-301 packages on Apple Silicon Macs, Intel Macs, Windows x64, and Linux x64. Packages can include native variants under `native/mac-arm64/`, `native/mac-x64/`, `native/win-x64/`, and `native/lin-x64/`; the matching variant is installed automatically while legacy root binaries remain supported as a fallback.
 
-Support for third-party packages on Windows, Linux, and Intel Macs is planned for the near future. This limitation does not affect the included ER-301 core package.
+Availability still depends on each third-party package shipping a native binary for the current platform. This does not affect the included ER-301 core package.
 
 ## Repository layout
 
@@ -126,6 +126,6 @@ See:
 - `THIRD_PARTY_NOTICES.md`
 - `er-301-native/LICENSE.md`
 
-Release version: **2.1.1**
+Release version: **2.1.2**
 
 VCV Rack port by **Jeff Triggs / Festivamente** — [https://festivamente.com](https://festivamente.com)

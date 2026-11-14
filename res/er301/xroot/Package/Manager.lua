@@ -115,6 +115,27 @@ local function findCompatiblePackage(dep, installedOnly)
   return best
 end
 
+local nativePackagePlatforms = {
+  "win-x64",
+  "mac-arm64",
+  "mac-x64",
+  "lin-x64"
+}
+
+local function getHostPackagePlatform()
+  for _, platform in ipairs(nativePackagePlatforms) do
+    local marker = Path.join(app.roots.rear,
+                             ".vcv-package-platform-" .. platform)
+    if Path.exists(marker) then
+      return platform
+    end
+  end
+end
+
+local function startsWith(text, prefix)
+  return text:sub(1, #prefix) == prefix
+end
+
 local function dependencyToPrettyString(dep)
   if type(dep) == "table" then
     if #dep == 1 then
@@ -319,25 +340,72 @@ local function install(package)
     return false, msg
   end
 
-  -- Extract files to system library folder
+  -- A package may carry platform-specific native files under
+  -- native/<platform>/.  The matching variant is installed at the normal
+  -- package-relative path, while legacy root files remain the fallback for
+  -- archives that do not provide a variant for this host.
   local n = archive:getFileCount()
+  local hostPlatform = getHostPackagePlatform()
+  local nativeRoot = "native/"
+  local nativePrefix
+  local nativeOverrides = {}
+  local nativeOverrideCount = 0
+
+  if hostPlatform then
+    nativePrefix = nativeRoot .. hostPlatform .. "/"
+    for i = 1, n do
+      local filename = archive:getFilename(i - 1)
+      if startsWith(filename, nativePrefix) then
+        local relative = filename:sub(#nativePrefix + 1)
+        if relative ~= "" and relative:sub(-1) ~= "/" then
+          nativeOverrides[relative] = true
+          nativeOverrideCount = nativeOverrideCount + 1
+        end
+      end
+    end
+  end
+
+  if nativeOverrideCount > 0 then
+    app.logInfo("Installing %s native variant for %s.", package.id,
+                hostPlatform)
+  end
+
   for i = 1, n do
     local filename = archive:getFilename(i - 1)
-    local path = Path.join(installFolder, filename)
-    Path.createAll(path, true)
-    if Path.isDirectory(path:gsub("/$", "")) then
-      -- app.logInfo("Skipping folder: %s", path)
-    else
-      Busy.status("Installing %s: %s", package.id, Path.getFilename(filename))
-      -- app.logInfo("Extracting %s.", path)
-      if not archive:extract(filename, path) then
-        local msg = string.format("Failed to extract %s from %s.", filename,
-                                  package.id)
-        app.logInfo(msg)
-        archive:close()
-        Path.recursiveDelete(installFolder)
-        Busy.stop()
-        return false, msg
+    local installName = filename
+    local skip = false
+
+    if startsWith(filename, nativeRoot) then
+      if nativePrefix and startsWith(filename, nativePrefix) then
+        installName = filename:sub(#nativePrefix + 1)
+        if installName == "" then
+          skip = true
+        end
+      else
+        skip = true
+      end
+    elseif nativeOverrides[filename] then
+      -- A matching native variant supersedes the legacy root fallback.
+      skip = true
+    end
+
+    if not skip then
+      local path = Path.join(installFolder, installName)
+      Path.createAll(path, true)
+      if Path.isDirectory(path:gsub("/$", "")) then
+        -- app.logInfo("Skipping folder: %s", path)
+      else
+        Busy.status("Installing %s: %s", package.id,
+                    Path.getFilename(installName))
+        if not archive:extract(filename, path) then
+          local msg = string.format("Failed to extract %s from %s.", filename,
+                                    package.id)
+          app.logInfo(msg)
+          archive:close()
+          Path.recursiveDelete(installFolder)
+          Busy.stop()
+          return false, msg
+        end
       end
     end
   end
@@ -442,14 +510,36 @@ local function registerFilePackager(ext, func)
 end
 
 -- The VCV port ships the standard Core archive on the emulated front card.
--- Install it once on a new VCV card, then remember that the bootstrap has
--- happened. The marker is intentionally stored on the front card rather than
--- in the package database: if the user later uninstalls Core, it stays
--- uninstalled instead of being silently restored at every boot.
+-- POSIX hosts share installed packages between ER-301 instances, so their
+-- bootstrap marker is shared on the front card as well. Windows cannot rely on
+-- symlink privileges and therefore keeps persistent per-instance package
+-- stores; on that host the matching bootstrap marker must live on the rear
+-- card for the instance. In either case, keeping the marker outside the package
+-- database means a deliberate Core uninstall stays uninstalled on later boots.
+local bundledCoreMarkerDb = "ER301SoundComputer"
+local bundledCoreMarkerKey = "bundledCoreBootstrapComplete"
+local privatePackageStoreMarker =
+    Path.join(app.roots.rear, ".vcv-private-package-store")
+
+local function getBundledCoreBootstrapComplete()
+  if Path.exists(privatePackageStoreMarker) then
+    return Persist.getRearCardValue(bundledCoreMarkerDb,
+                                    bundledCoreMarkerKey)
+  end
+  return Persist.getFrontCardValue(bundledCoreMarkerDb,
+                                   bundledCoreMarkerKey)
+end
+
+local function setBundledCoreBootstrapComplete()
+  if Path.exists(privatePackageStoreMarker) then
+    Persist.setRearCardValue(bundledCoreMarkerDb, bundledCoreMarkerKey, true)
+  else
+    Persist.setFrontCardValue(bundledCoreMarkerDb, bundledCoreMarkerKey, true)
+  end
+end
+
 local function installBundledCoreOnce()
-  local markerDb = "ER301SoundComputer"
-  local markerKey = "bundledCoreBootstrapComplete"
-  if Persist.getFrontCardValue(markerDb, markerKey) then
+  if getBundledCoreBootstrapComplete() then
     return
   end
 
@@ -457,14 +547,14 @@ local function installBundledCoreOnce()
   -- this bootstrap behavior was introduced.
   for _, candidate in pairs(getPackages()) do
     if candidate.installed and candidate:getName() == "core" then
-      Persist.setFrontCardValue(markerDb, markerKey, true)
+      setBundledCoreBootstrapComplete()
       return
     end
   end
 
   local bundled = getPackage("core-0.7.0-dev1.8")
   if bundled and install(bundled) then
-    Persist.setFrontCardValue(markerDb, markerKey, true)
+    setBundledCoreBootstrapComplete()
   else
     app.logWarn("Bundled Core package could not be installed automatically.")
   end
