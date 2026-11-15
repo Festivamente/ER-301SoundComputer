@@ -14,6 +14,7 @@
 namespace
 {
   const uint32_t MH_MAGIC_64 = 0xfeedfacfU;
+  const uint32_t CPU_TYPE_X86_64 = 0x01000007U;
   const uint32_t CPU_TYPE_ARM64 = 0x0100000cU;
   const uint32_t LC_SEGMENT_64 = 0x19U;
   const uint32_t LC_LOAD_DYLIB = 0x0cU;
@@ -42,6 +43,28 @@ namespace
   const uint8_t BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB = 0xc0U;
   const int BIND_SPECIAL_DYLIB_FLAT_LOOKUP = -2;
   const uint8_t BIND_TYPE_POINTER = 1U;
+
+  uint32_t nativeHostCpuType()
+  {
+#if defined(__aarch64__) || defined(__arm64__)
+    return CPU_TYPE_ARM64;
+#elif defined(__x86_64__) || defined(_M_X64)
+    return CPU_TYPE_X86_64;
+#else
+    return 0;
+#endif
+  }
+
+  const char *nativeHostCpuName()
+  {
+#if defined(__aarch64__) || defined(__arm64__)
+    return "Apple Silicon arm64";
+#elif defined(__x86_64__) || defined(_M_X64)
+    return "Intel x86_64";
+#else
+    return "unsupported";
+#endif
+  }
 
 #pragma pack(push, 1)
   struct MachHeader64
@@ -585,10 +608,11 @@ namespace emu
               sourcePath;
       return false;
     }
-    if (header->cpuType != CPU_TYPE_ARM64)
+    const uint32_t expectedCpuType = nativeHostCpuType();
+    if (expectedCpuType == 0 || header->cpuType != expectedCpuType)
     {
-      error = "Native package is not an Apple Silicon arm64 image: " +
-              sourcePath;
+      error = "Native package architecture does not match the " +
+              std::string(nativeHostCpuName()) + " host: " + sourcePath;
       return false;
     }
     if (!checkedRange(sizeof(MachHeader64), header->commandBytes,

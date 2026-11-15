@@ -28,7 +28,15 @@ PATCHED="$BUILD/libPluck.er-301soundcomputer.so"
 "$BUILD/native_package_patch_test" \
   "$BUILD/package/libPluck.so" "$PATCHED" "$ENGINE_IMAGE"
 
-file "$PATCHED" | grep -q 'Mach-O 64-bit arm64'
+case "$(uname -m)" in
+  arm64|aarch64) EXPECTED_MACHO_ARCH="arm64" ;;
+  x86_64|amd64) EXPECTED_MACHO_ARCH="x86_64" ;;
+  *)
+    echo "Unsupported macOS host architecture for native-package verification: $(uname -m)" >&2
+    exit 1
+    ;;
+esac
+file "$PATCHED" | grep -q "Mach-O 64-bit $EXPECTED_MACHO_ARCH"
 strings "$PATCHED" | grep -q '/tmp/ER-301SoundComputerPackageTestEngine.dylib'
 strings "$PATCHED" | grep -q '_soundcomputer_compat_inlet_ctor'
 strings "$PATCHED" | grep -q '_soundcomputer_compat_outlet_ctor'
